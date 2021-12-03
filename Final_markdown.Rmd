@@ -1,0 +1,247 @@
+---
+title: "Final_Markdown"
+author: "Jonathon Sun"
+date: "11/20/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+pacman::p_load(tidyverse, vroom, DataExplorer, lubridate, sf, tidycensus, tigris, hms, riem)
+
+library(gridExtra)
+
+root.dir = "https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/DATA/"
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
+
+palette_9_colors <- c("#FF2AD4","#E53AD8","#CC4ADC","#996AE5","#7F7BE9",
+                      "#668BED","#33ABF6","#19BBFA","#00CCFF")
+palette_3_colors <- c("#FF2AD4","#7F7BE9","#00CCFF")
+palette_2_colors <- c("#FF2AD4", "#00CCFF")
+palette_1_colors <- c("#00CCFF")
+```
+
+# Case
+Project option 4 - Forecast Metro train delays in and around NYC: An amazing new dataset has popped up on Kaggle recently that list origin/destinations delays for Amtrak and NJ Transit trains. Can you predict train delays? Consider the time frame that it would be useful to have such predictions. Predicting 5 minutes out is not going to be as useful as 2-3 hours out. Consider training on a month and predicting for the next week or two. Consider time/space (train line, county etc.) cross validation. Many app use cases here.
+
+
+```{r}
+import <- paste0("Amtrak/",list.files("Amtrak"))
+
+df <- read.csv(import[1])
+
+for (i in 2:nrow(as_tibble(import))) {
+  df <- rbind(df,read.csv(import[i]))
+}
+
+df <- df %>%
+  mutate(scheduled_time = ymd_hms(scheduled_time),
+         actual_time = ymd_hms(actual_time),
+         week = week(date),
+         DotW = wday(date),
+         Start_time = as_hms(scheduled_time),
+         Actual_time = as_hms(actual_time),
+         AM_PM = ifelse(am(Actual_time) == TRUE, "AM","PM"),
+         Year = year(date)) %>%
+  rename(scheduled_datetime = scheduled_time,
+         actual_datetime = actual_time)
+
+Amtrak_stops <- bind_rows(
+                  df %>%
+                    filter(type == "Amtrak") %>%
+                    group_by(from) %>%
+                    summarize(total = n()) %>%
+                    rename(location = from),
+                  df %>%
+                    filter(type == "Amtrak") %>%
+                    group_by(to) %>%
+                    summarize(total = n()) %>%
+                    rename(location = to)) %>%
+                  arrange(location) %>%
+                  group_by(location) %>%
+                  summarize(total = sum(total))
+
+NJTransit_stops <- bind_rows(
+                      df %>%
+                        filter(type == "NJ Transit") %>%
+                        group_by(from) %>%
+                        summarize(total = n()) %>%
+                        rename(location = from),
+                      df %>%
+                        filter(type == "NJ Transit") %>%
+                        group_by(to) %>%
+                        summarize(total = n()) %>%
+                        rename(location = to)) %>%
+                      arrange(location) %>%
+                      group_by(location) %>%
+                      summarize(total = sum(total))
+
+AllStops <- bind_rows(Amtrak_stops, NJTransit_stops) %>%
+              group_by(location) %>%
+              summarise(total = sum(total))
+
+
+```
+
+# Exploring Data types
+
+
+
+
+# Train Routes
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# There's no complete set of NJ transit lines anymore
+
+NJTransitLines <- bind_rows(st_read("https://opendata.arcgis.com/datasets/fc24118ac4a0445da5e09f7692075757_13.geojson"),
+                            st_read("https://opendata.arcgis.com/datasets/fc24118ac4a0445da5e09f7692075757_9.geojson"),
+                            st_read("https://opendata.arcgis.com/datasets/fc24118ac4a0445da5e09f7692075757_3.geojson"),
+                            st_read("https://opendata.arcgis.com/datasets/fc24118ac4a0445da5e09f7692075757_4.geojson"),
+                            st_read("https://opendata.arcgis.com/datasets/fc24118ac4a0445da5e09f7692075757_1.geojson"),
+                            st_read("https://opendata.arcgis.com/datasets/fc24118ac4a0445da5e09f7692075757_5.geojson"),
+                            st_read("https://opendata.arcgis.com/datasets/fc24118ac4a0445da5e09f7692075757_0.geojson"),
+                            st_read("https://services6.arcgis.com/M0t0HPE53pFK525U/arcgis/rest/services/NJTransit_Rail_Linea/FeatureServer/2/query?outFields=*&where=1%3D1&f=geojson"),
+                            st_read("https://services6.arcgis.com/M0t0HPE53pFK525U/arcgis/rest/services/NJTransit_Rail_Linea/FeatureServer/6/query?outFields=*&where=1%3D1&f=geojson"),
+                            st_read("https://services6.arcgis.com/M0t0HPE53pFK525U/arcgis/rest/services/NJTransit_Rail_Linea/FeatureServer/7/query?outFields=*&where=1%3D1&f=geojson"),
+                            st_read("https://services6.arcgis.com/M0t0HPE53pFK525U/arcgis/rest/services/NJTransit_Rail_Linea/FeatureServer/8/query?outFields=*&where=1%3D1&f=geojson"),
+                            st_read("https://services6.arcgis.com/M0t0HPE53pFK525U/arcgis/rest/services/NJTransit_Rail_Linea/FeatureServer/10/query?outFields=*&where=1%3D1&f=geojson"),
+                            st_read("https://services6.arcgis.com/M0t0HPE53pFK525U/arcgis/rest/services/NJTransit_Rail_Linea/FeatureServer/11/query?outFields=*&where=1%3D1&f=geojson"),
+                            st_read("https://services6.arcgis.com/M0t0HPE53pFK525U/arcgis/rest/services/NJTransit_Rail_Linea/FeatureServer/12/query?outFields=*&where=1%3D1&f=geojson")) %>%
+  select(!c("OBJECTID","LINE_CODE"))
+
+
+
+NJtransitstations <- st_read("https://opendata.arcgis.com/datasets/4809dada94c542e0beff00600ee930f6_0.geojson") 
+```
+
+
+
+```{r eval=FALSE, include=FALSE}
+#Amtrak_routes <- st_read("https://opendata.arcgis.com/datasets/baa5a6c4d4ae4034850e99aaca38cfbb_0.geojson") 
+#Amtrak_stations <- st_read("https://opendata.arcgis.com/datasets/4cf728602fa3428ba0a08d30efbb5f45_0.geojson")
+# In case amtrak links don't work -------------------------------------
+
+Amtrak_routes <- st_read(".//AmtrakRoutes//amtrakroutes.shp") 
+
+Amtrak_stations <- st_read(".//AmtrakStations//amtrakstations.shp")
+
+#st_write(NJTransitLines,"NJTransitLineShapefile/NJTransitlines.shp")
+#st_write(Amtrak_stations,"AmtrakStations/Amtrakstations.shp")
+#st_write(Amtrak_routes,"AmtrakRoutes/Amtrakroutes.shp")
+
+# -----------------------------------------
+sts <- c("NJ","NY","PA")
+
+combined <- rbind_tigris(
+  lapply(sts, function(x) {
+    tracts(x, cb = TRUE)
+  })
+) %>%
+  st_transform(st_crs(Amtrak_stations))
+  
+
+#AmtrakLinesDf <- st_intersection(combined, Amtrak_routes) %>%
+#  group_by(NAME.1) %>%
+#  summarize(total = n())
+
+#AmtrakLinesDf %>%
+#  select()
+
+#ggplot() +
+#  geom_sf(data = combined) +
+#  geom_sf(data = AmtrakLinesDf)
+
+#Amtrak_stations %>%
+#  separate(StationNam, into = c("County", "State"), sep = ",", remove = FALSE) %>%
+#  mutate(State = trimws(State)) %>%
+#  filter(State %in% c("NY","NJ","PA")) %>%
+#  View()
+```
+
+
+
+```{r}
+DataExplorer::plot_intro(Amtrak)
+```
+
+# Attaching Geography
+```{r}
+unique(df$line)
+
+df %>%
+  filter(line %in% c("Amtrak","AMTRAK","AMTRAK REGIONAL")) %>%
+  View()
+
+#f <- df %>%
+#      mutate(merge = case_when(from == "New York Penn Station" & to == "New York Penn Station" & line == "Amtrak" ~ "Winner",
+#                               from == "Philadelphia" & to == "New York Penn Station" & line == "Amtrak" ~ "Something",
+#                               from == "New York Penn Station" & to == "Philadelphia" & line == "Amtrak" ~ "Apple"))
+
+
+df_clean <- df %>%
+              mutate(clean = ifelse(is.na(Start_time) == TRUE, "remove","keep")) %>%
+              filter(clean == "keep") %>%
+              select(!clean) %>% 
+              mutate(LINE_NAME = case_when(line == "Northeast Corrdr" ~ "Northeast Corridor",
+                                        line == "No Jersey Coast" ~ "NJ Coast Line",
+                                        line == "Main Line" ~ "Main Line",
+                                        line == "Morristown Line" ~ "Morristown Line",
+                                        line == "Gladstone Branch" ~ "Gladstone Branch",
+                                        line == "Raritan Valley" ~ "Raritan Valley Line",
+                                        line == "Bergn Co. Line" ~ "Bergen County Line",
+                                        line == "Atl. City LIne" ~ "Atlnatic City Line",
+                                        line == "Montclair-Boonton" ~ "Montclair-Boonton Line",
+                                        line == "Princeton Shuttle" ~ "Princeton Dinky",
+                                        line == "Pascack Valley" ~ "Pascack Valley Line"),
+                     interval60 = floor_date(actual_datetime, unit = "hour")) %>%
+            left_join(NJTransitLines, by = "LINE_NAME")
+        
+# Attaching weather -----------------------------------
+weather.Panel <- 
+  riem_measures(station = "EWR", date_start = (as.Date(min(df_clean$date))-5), date_end = (as.Date(max(df_clean$date))+5)) %>%
+  dplyr::select(valid, tmpf, p01i, sknt)%>%
+  replace(is.na(.), 0) %>%
+    mutate(interval60 = ymd_h(substr(valid,1,13))) %>%
+    mutate(week = week(interval60),
+           dotw = wday(interval60, label=TRUE)) %>%
+    group_by(interval60) %>%
+    summarize(Temperature = max(tmpf),
+              Precipitation = sum(p01i),
+              Wind_Speed = max(sknt)) %>%
+    mutate(Temperature = ifelse(Temperature == 0, 42, Temperature))
+
+df_clean <- left_join(df_clean, weather.Panel, by = "interval60")
+
+unique(df_clean$line)
+
+unique(AmtrakLinesDf$NAME.1)
+unique(NJTransitLines$LINE_NAME)
+
+
+
+
+NJtransitstations %>%
+  filter(STATION_ID %in% AllStops$location) 
+
+d
+
+```
+
+
+
+```{r}
+df_clean %>%
+  group_by(train_id, Year) %>%
+  summarize(mean_delay = mean(delay_minutes),
+            sd_delay = sd(delay_minutes),
+            mean_temperature = mean(Temperature),
+            sd_temperature = sd(Temperature),
+            mean_precipitation = mean(Precipitation),
+            sd_precipitation = sd(Precipitation))
+
+f <- df_clean %>%
+  filter(is.na(Temperature))
+
+NA_weather_dates <- unique(f$interval60)
+
+```
