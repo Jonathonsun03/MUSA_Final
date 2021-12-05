@@ -48,8 +48,9 @@ df <- df %>%
          train_lag = lag(train_id),
          time_lag_dumb = lag(delay_minutes),
          train_end = train_lag == train_id,
-         station_lag = ifelse(train_end == TRUE, time_lag_dumb,NA)) %>%
-  select(!c("time_lag_dumb","train_end")) %>%
+         station_lag = ifelse(train_end == TRUE, time_lag_dumb,NA),
+         accumulated_delay = delay_minutes + station_lag) %>%
+  select(!c("time_lag_dumb","train_end","train_lag")) %>%
   rename(scheduled_datetime = scheduled_time,
          actual_datetime = actual_time)
 
