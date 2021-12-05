@@ -8,7 +8,7 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
-pacman::p_load(tidyverse, vroom, DataExplorer, lubridate, sf, tidycensus, tigris, hms, riem)
+pacman::p_load(tidyverse, vroom, DataExplorer, lubridate, sf, tidycensus, tigris, hms, riem, slider)
 
 library(gridExtra)
 
@@ -36,6 +36,7 @@ for (i in 2:nrow(as_tibble(import))) {
 }
 
 df <- df %>%
+  filter(type == "NJ Transit") %>%
   mutate(scheduled_time = ymd_hms(scheduled_time),
          actual_time = ymd_hms(actual_time),
          week = week(date),
@@ -43,46 +44,17 @@ df <- df %>%
          Start_time = as_hms(scheduled_time),
          Actual_time = as_hms(actual_time),
          AM_PM = ifelse(am(Actual_time) == TRUE, "AM","PM"),
-         Year = year(date)) %>%
+         Year = year(date),
+         train_lag = lag(train_id),
+         time_lag_dumb = lag(delay_minutes),
+         train_end = train_lag == train_id,
+         station_lag = ifelse(train_end == TRUE, time_lag_dumb,NA)) %>%
+  select(!c("time_lag_dumb","train_end")) %>%
   rename(scheduled_datetime = scheduled_time,
          actual_datetime = actual_time)
 
-Amtrak_stops <- bind_rows(
-                  df %>%
-                    filter(type == "Amtrak") %>%
-                    group_by(from) %>%
-                    summarize(total = n()) %>%
-                    rename(location = from),
-                  df %>%
-                    filter(type == "Amtrak") %>%
-                    group_by(to) %>%
-                    summarize(total = n()) %>%
-                    rename(location = to)) %>%
-                  arrange(location) %>%
-                  group_by(location) %>%
-                  summarize(total = sum(total))
-
-NJTransit_stops <- bind_rows(
-                      df %>%
-                        filter(type == "NJ Transit") %>%
-                        group_by(from) %>%
-                        summarize(total = n()) %>%
-                        rename(location = from),
-                      df %>%
-                        filter(type == "NJ Transit") %>%
-                        group_by(to) %>%
-                        summarize(total = n()) %>%
-                        rename(location = to)) %>%
-                      arrange(location) %>%
-                      group_by(location) %>%
-                      summarize(total = sum(total))
-
-AllStops <- bind_rows(Amtrak_stops, NJTransit_stops) %>%
-              group_by(location) %>%
-              summarise(total = sum(total))
-
-
 ```
+
 
 # Exploring Data types
 
@@ -156,21 +128,26 @@ combined <- rbind_tigris(
 #  mutate(State = trimws(State)) %>%
 #  filter(State %in% c("NY","NJ","PA")) %>%
 #  View()
+
+
+
+
+
 ```
 
 
 
 ```{r}
-DataExplorer::plot_intro(Amtrak)
+DataExplorer::plot_intro(df)
 ```
 
 # Attaching Geography
 ```{r}
 unique(df$line)
 
-df %>%
-  filter(line %in% c("Amtrak","AMTRAK","AMTRAK REGIONAL")) %>%
-  View()
+#df %>%
+#  filter(line %in% c("Amtrak","AMTRAK","AMTRAK REGIONAL")) %>%
+#  View()
 
 #f <- df %>%
 #      mutate(merge = case_when(from == "New York Penn Station" & to == "New York Penn Station" & line == "Amtrak" ~ "Winner",
@@ -194,8 +171,11 @@ df_clean <- df %>%
                                         line == "Princeton Shuttle" ~ "Princeton Dinky",
                                         line == "Pascack Valley" ~ "Pascack Valley Line"),
                      interval60 = floor_date(actual_datetime, unit = "hour")) %>%
-            left_join(NJTransitLines, by = "LINE_NAME")
-        
+            left_join(NJTransitLines, by = "LINE_NAME") %>%
+            st_as_sf()
+
+
+
 # Attaching weather -----------------------------------
 weather.Panel <- 
   riem_measures(station = "EWR", date_start = (as.Date(min(df_clean$date))-5), date_end = (as.Date(max(df_clean$date))+5)) %>%
@@ -223,8 +203,6 @@ unique(NJTransitLines$LINE_NAME)
 NJtransitstations %>%
   filter(STATION_ID %in% AllStops$location) 
 
-d
-
 ```
 
 
@@ -243,5 +221,46 @@ f <- df_clean %>%
   filter(is.na(Temperature))
 
 NA_weather_dates <- unique(f$interval60)
+
+```
+
+
+```{r}
+```{r}
+Amtrak_stops <- bind_rows(
+                  df %>%
+                    filter(type == "Amtrak") %>%
+                    group_by(from) %>%
+                    summarize(total = n()) %>%
+                    rename(location = from),
+                  df %>%
+                    filter(type == "Amtrak") %>%
+                    group_by(to) %>%
+                    summarize(total = n()) %>%
+                    rename(location = to)) %>%
+                  arrange(location) %>%
+                  group_by(location) %>%
+                  summarize(total = sum(total))
+
+NJTransit_stops <- bind_rows(
+                      df %>%
+                        filter(type == "NJ Transit") %>%
+                        group_by(from) %>%
+                        summarize(total = n()) %>%
+                        rename(location = from),
+                      df %>%
+                        filter(type == "NJ Transit") %>%
+                        group_by(to) %>%
+                        summarize(total = n()) %>%
+                        rename(location = to)) %>%
+                      arrange(location) %>%
+                      group_by(location) %>%
+                      summarize(total = sum(total))
+
+AllStops <- bind_rows(Amtrak_stops, NJTransit_stops) %>%
+              group_by(location) %>%
+              summarise(total = sum(total))
+
+```
 
 ```
