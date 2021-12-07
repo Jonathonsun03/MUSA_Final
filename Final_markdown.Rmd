@@ -8,9 +8,11 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
-pacman::p_load(tidyverse, vroom, DataExplorer, lubridate, sf, tidycensus, tigris, hms, riem, slider)
+pacman::p_load(tidyverse, vroom, DataExplorer, lubridate, sf, tidycensus, tigris, hms, riem, slider, scales, caret,RcppEigen, ckanr, FNN, ggcorplot, grid, gridExtra, gtools, httr, kableExtra, modelsummary,tidycensus, spdep, stargazer, tmap, viridis, zipcodeR, DT)
 
-library(gridExtra)
+#RcppEigen https://rdrr.io/cran/RcppEigen/ runs fastLm()
+
+options(scipen = 100)
 
 root.dir = "https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/DATA/"
 source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
@@ -37,7 +39,8 @@ for (i in 2:nrow(as_tibble(import))) {
 
 df <- df %>%
   filter(type == "NJ Transit") %>%
-  mutate(scheduled_time = ymd_hms(scheduled_time),
+  mutate(date = ymd(date),
+         scheduled_time = ymd_hms(scheduled_time),
          actual_time = ymd_hms(actual_time),
          week = week(date),
          DotW = wday(date),
@@ -49,7 +52,8 @@ df <- df %>%
          time_lag_dumb = lag(delay_minutes),
          train_end = train_lag == train_id,
          station_lag = ifelse(train_end == TRUE, time_lag_dumb,NA),
-         accumulated_delay = delay_minutes + station_lag) %>%
+         accumulated_delay = delay_minutes + station_lag,
+         ID = row_number()) %>%
   select(!c("time_lag_dumb","train_end","train_lag")) %>%
   rename(scheduled_datetime = scheduled_time,
          actual_datetime = actual_time)
@@ -85,9 +89,391 @@ NJTransitLines <- bind_rows(st_read("https://opendata.arcgis.com/datasets/fc2411
 
 
 NJtransitstations <- st_read("https://opendata.arcgis.com/datasets/4809dada94c542e0beff00600ee930f6_0.geojson") 
+
+
 ```
 
 
+```{r}
+DataExplorer::plot_intro(df)
+```
+
+# Attaching Geography
+```{r}
+#df %>%
+#  filter(line %in% c("Amtrak","AMTRAK","AMTRAK REGIONAL")) %>%
+#  View()
+
+#f <- df %>%
+#      mutate(merge = case_when(from == "New York Penn Station" & to == "New York Penn Station" & line == "Amtrak" ~ "Winner",
+#                               from == "Philadelphia" & to == "New York Penn Station" & line == "Amtrak" ~ "Something",
+#                               from == "New York Penn Station" & to == "Philadelphia" & line == "Amtrak" ~ "Apple"))
+
+# Attaching weather -----------------------------------
+weather.Panel <- 
+  riem_measures(station = "EWR", date_start = (as.Date(min(df$date))-5), date_end = (as.Date(max(df$date))+5)) %>%
+  dplyr::select(valid, tmpf, p01i, sknt)%>%
+  replace(is.na(.), 0) %>%
+    mutate(interval60 = ymd_h(substr(valid,1,13))) %>%
+    mutate(week = week(interval60),
+           dotw = wday(interval60, label=TRUE)) %>%
+    group_by(interval60) %>%
+    summarize(Temperature = max(tmpf),
+              Precipitation = sum(p01i),
+              Wind_Speed = max(sknt)) %>%
+    mutate(Temperature = ifelse(Temperature == 0, 42, Temperature))
+
+df <- left_join(df %>% 
+                        mutate(interval60 = floor_date(actual_datetime, unit = "hour")), weather.Panel, by = "interval60")
+
+
+
+df <- df %>%
+              mutate(clean = ifelse(is.na(Start_time) == TRUE, "remove","keep")) %>%
+              filter(clean == "keep") %>%
+              select(!clean) %>% 
+              mutate(LINE_NAME = case_when(line == "Northeast Corrdr" ~ "Northeast Corridor",
+                                        line == "No Jersey Coast" ~ "NJ Coast Line",
+                                        line == "Main Line" ~ "Main Line",
+                                        line == "Morristown Line" ~ "Morristown Line",
+                                        line == "Gladstone Branch" ~ "Gladstone Branch",
+                                        line == "Raritan Valley" ~ "Raritan Valley Line",
+                                        line == "Bergn Co. Line" ~ "Bergen County Line",
+                                        line == "Atl. City LIne" ~ "Atlnatic City Line",
+                                        line == "Montclair-Boonton" ~ "Montclair-Boonton Line",
+                                        line == "Princeton Shuttle" ~ "Princeton Dinky",
+                                        line == "Pascack Valley" ~ "Pascack Valley Line")) 
+
+df_shp <- left_join(df, NJTransitLines, by = "LINE_NAME") %>%
+            st_as_sf()
+```
+
+# Exploratory Data
+
+```{r}
+numericVars <- df_shp %>%
+                st_drop_geometry() %>%
+                na.omit() %>%
+                select(where(is.numeric)) %>%
+                select(!c("from_id","to_id","DotW","station_lag","stop_sequence","Year","week"))
+
+ggcorrplot(
+  round(cor(numericVars), 1), 
+  p.mat = cor_pmat(numericVars),
+  colors = c("#25CB10", "white", "#FA7800"),
+  type="lower",
+  insig = "blank") +  
+    labs(title = "Correlation across numeric variables")
+
+
+```
+
+```{r}
+Categorical <- df_shp %>%
+                st_drop_geometry() %>%
+                na.omit() %>%
+                select(where(is.character),delay_minutes)
+
+colnames(Categorical)
+
+cat <- Categorical %>%
+        select(colnames(Categorical)[2], delay_minutes) %>%
+        mutate(Variable = colnames(Categorical[2])) %>%
+        dplyr::rename("Value" = 1)
+
+for(i in 2:(nrow(as.tibble(colnames(Categorical)))-1)) {
+t <- Categorical %>%
+        select(colnames(Categorical)[i], delay_minutes) %>%
+        mutate(Variable = colnames(Categorical[i])) %>%
+        dplyr::rename("Value" = 1)
+
+cat <- bind_rows(cat,t)
+}
+```
+
+## Categorical
+
+```{r}
+ggplot(data = cat %>%
+         filter(!Variable %in% c("from","to","train_id","type")),
+       aes(x = Value,  y = delay_minutes)) +
+  geom_bar(stat = "summary", fun.y = "mean") +
+  scale_y_continuous(labels = comma) +
+  facet_wrap(~Variable, scales = "free") +
+  plotTheme() +
+  labs(x = "Categorical Variables",
+       y = "Delay in Minutes",
+       title = "Cateogrical Variables Average Delay")
+```
+
+## station delays
+
+```{r fig.height=12}
+ggplot(data = cat %>%
+         filter(Variable %in% c("from","to")) %>%
+         arrange(Value) %>%
+         mutate(Value = as.factor(Value)),
+       aes(x = Value,  y = delay_minutes, fill = Variable)) +
+  geom_bar(position = "dodge2", stat = "summary", fun.y = "mean") +
+  scale_y_continuous(labels = comma) +
+  plotTheme() +
+  labs(x = "Categorical Variables",
+       y = "Delay in Minutes",
+       title = "Cateogrical Variables Average Delay") +
+  coord_flip()
+```
+
+## station delays by geography
+
+[INSERT THIS LATER]
+
+## Line delays by geography
+
+[INSERT THIS LATER]
+
+## Train delays
+
+```{r fig.height = 20}
+ggplot(data = cat %>%
+         filter(Variable %in% c("train_id")),
+       aes(x = Value,  y = delay_minutes)) +
+  geom_bar(position = "dodge2", stat = "summary", fun.y = "mean") +
+  scale_y_continuous(labels = comma) +
+  plotTheme() +
+  labs(x = "Categorical Variables",
+       y = "Delay in Minutes",
+       title = "Cateogrical Variables Average Delay") +
+  coord_flip()
+
+```
+
+
+# Model building
+
+
+```{r}
+set.seed(111)
+
+#sample_size = round(nrow(df_shp %>%
+#                           st_drop_geometry())*.6)
+#trainIndex <- sample(seq_len(nrow(df_shp %>%
+#                           st_drop_geometry())), size = sample_size)
+
+#Train <- lmdf[trainIndex,]
+#Valid <- lmdf[-trainIndex,]
+
+
+
+remove <- c("from_id","to_id","type","interval60","line","date","scheduled_datetime","actual_datetime","train_id")
+
+Sample <- df %>%
+          select(!remove)
+Sample <- Sample[sample(nrow(Sample), size = 1000000), ]
+
+Test <- df %>%
+          select(!remove) %>%
+          filter(!ID %in% Sample$ID) %>%
+          filter(from %in% Sample$from) %>%
+          filter(to %in% Sample$to) %>%
+          filter(LINE_NAME %in% Sample$LINE_NAME) %>%
+          na.omit()
+
+Sample <- Sample %>%
+            select(!ID)
+
+Test <- Test %>%
+          select(!ID)
+gc()
+
+#reg.training <- fastLm(delay_minutes ~ ., data = Sample)
+
+reg.training <- lm(delay_minutes ~ ., data = Sample)
+
+#summary(reg.training) Our R squared is 1. Definitely an overfit model. We'll see how well it predicts though. 
+
+f <- predict(reg.training, Test)
+
+Test <- bind_cols(Test, f) %>%
+          rename(Delay.Predict = ...18) %>%
+          mutate(Delay.Error = Delay.Predict - delay_minutes,
+               Delay.AbsError = abs(Delay.Predict - delay_minutes),
+               Delay.APE = (abs(Delay.Predict - delay_minutes)) / Delay.Predict)
+
+
+mae <- mean(Test$Delay.AbsError, na.rm=TRUE)
+print(mae)
+mape <- mean(Test$Delay.APE, na.rm=TRUE)
+print(mape)
+
+
+# Table of regression outputs
+modelsummary(reg.training, output = "kableExtra", stars = TRUE, gof_omit = 'IC|Log|AIC|BIC')
+```
+
+# Cross Validation
+
+```{r Cross_Validation}
+fitControl <- trainControl(method = "cv", number = 5)
+set.seed(825)
+
+reg.cv <- 
+  train(delay_minutes ~ ., data = Sample, 
+     method = "lm", trControl = fitControl, na.action = na.pass)
+
+reg.cv
+```
+
+## Average Predicted Delay by Train Route
+
+```{r}
+NJshp <- tigris::states() %>%
+             filter(NAME == "New Jersey")
+
+Test %>%
+  group_by(LINE_NAME) %>%
+  summarize(Mean_Delay = mean(Delay.Predict)) %>%
+  left_join(NJTransitLines, by = "LINE_NAME") %>%
+  st_as_sf() %>%
+  ggplot() +
+  geom_sf(aes(color = Mean_Delay)) +
+  geom_sf(data = NJshp, fill = "transparent")
+
+
+```
+
+### Average Predicted Delay From Station 
+```{r}
+NJtransitstations[149,2] <- "Middletown NY"
+NJtransitstations$STATION_ID <- trimws(NJtransitstations$STATION_ID)
+
+Station_clean <- Test %>%
+                   select(from) %>%
+                   arrange(from) %>%
+                   unique() %>%
+                    mutate(Spelled_correctly = ifelse(from %in% NJtransitstations$STATION_ID, TRUE, FALSE)) %>%
+  filter(Spelled_correctly == FALSE)
+
+
+f <- c("Anderson Street-Hackensack",
+  "Bay Street-Montclair",
+  "Essex Street-Hackensack",
+  "Glen Rock-Main",
+  "Hoboken Terminal",
+  "Middletown",
+  "Montclair St Univ",
+  "Mt Arlington",
+  "Mountain Station",
+  "Princeton Jct.",
+  "Ramsey",
+  "Rte 17 Ramsey",
+  "Secaucus Junction Lower Level",
+  "Secaucus Junction Upper Level",
+  "Teterboro-Williams Ave",
+  "Watsessing",
+  "Wayne Route 23 Transit Center",
+  "Wood-Ridge")
+
+Station_clean <- bind_cols(Station_clean,f) %>%
+                  rename(clean_name = ...3)
+
+for(i in 1:nrow(Station_clean)) {
+Test$from <- str_replace(Test$from, Station_clean$from[i],Station_clean$clean_name[i])
+}
+
+for(i in 1:nrow(Station_clean)) {
+Test$to <- str_replace(Test$to, Station_clean$from[i],Station_clean$clean_name[i])
+}
+
+
+Test %>%
+  group_by(from) %>%
+  summarize(Mean_Delay = mean(Delay.Predict)) %>%
+  rename(STATION_ID = from) %>%
+  left_join(NJtransitstations %>%
+              select(STATION_ID,LATITUDE,LONGITUDE,geometry), by = "STATION_ID") %>%
+  st_as_sf() %>%
+  ggplot() +
+  geom_sf(aes(color = Mean_Delay)) +
+  geom_sf(data = NJshp, fill = "transparent") +
+  labs(title = "from station average of predicted delay") +
+  mapTheme()
+
+Test %>%
+  group_by(to) %>%
+  summarize(Mean_Delay = mean(Delay.Predict)) %>%
+  rename(STATION_ID = to) %>%
+  left_join(NJtransitstations %>%
+              select(STATION_ID,LATITUDE,LONGITUDE,geometry), by = "STATION_ID") %>%
+  st_as_sf() %>%
+  ggplot() +
+  geom_sf(aes(color = Mean_Delay)) +
+  geom_sf(data = NJshp, fill = "transparent") +
+  labs(title = "to station average of predicted delay") +
+  mapTheme()
+```
+
+### Average Predicated Delay To Station
+
+
+
+# Appendix
+
+
+```{r}
+df_clean %>%
+  group_by(train_id, Year) %>%
+  summarize(mean_delay = mean(delay_minutes),
+            sd_delay = sd(delay_minutes),
+            mean_temperature = mean(Temperature),
+            sd_temperature = sd(Temperature),
+            mean_precipitation = mean(Precipitation),
+            sd_precipitation = sd(Precipitation))
+
+f <- df_clean %>%
+  filter(is.na(Temperature))
+
+NA_weather_dates <- unique(f$interval60)
+
+```
+
+```{r}
+Amtrak_stops <- bind_rows(
+                  df %>%
+                    filter(type == "Amtrak") %>%
+                    group_by(from) %>%
+                    summarize(total = n()) %>%
+                    rename(location = from),
+                  df %>%
+                    filter(type == "Amtrak") %>%
+                    group_by(to) %>%
+                    summarize(total = n()) %>%
+                    rename(location = to)) %>%
+                  arrange(location) %>%
+                  group_by(location) %>%
+                  summarize(total = sum(total))
+
+NJTransit_stops <- bind_rows(
+                      df %>%
+                        filter(type == "NJ Transit") %>%
+                        group_by(from) %>%
+                        summarize(total = n()) %>%
+                        rename(location = from),
+                      df %>%
+                        filter(type == "NJ Transit") %>%
+                        group_by(to) %>%
+                        summarize(total = n()) %>%
+                        rename(location = to)) %>%
+                      arrange(location) %>%
+                      group_by(location) %>%
+                      summarize(total = sum(total))
+
+AllStops <- bind_rows(Amtrak_stops, NJTransit_stops) %>%
+              group_by(location) %>%
+              summarise(total = sum(total))
+
+```
+
+## Amtrak Data
 
 ```{r eval=FALSE, include=FALSE}
 #Amtrak_routes <- st_read("https://opendata.arcgis.com/datasets/baa5a6c4d4ae4034850e99aaca38cfbb_0.geojson") 
@@ -137,131 +523,55 @@ combined <- rbind_tigris(
 ```
 
 
-
-```{r}
-DataExplorer::plot_intro(df)
-```
-
-# Attaching Geography
-```{r}
-unique(df$line)
-
-#df %>%
-#  filter(line %in% c("Amtrak","AMTRAK","AMTRAK REGIONAL")) %>%
-#  View()
-
-#f <- df %>%
-#      mutate(merge = case_when(from == "New York Penn Station" & to == "New York Penn Station" & line == "Amtrak" ~ "Winner",
-#                               from == "Philadelphia" & to == "New York Penn Station" & line == "Amtrak" ~ "Something",
-#                               from == "New York Penn Station" & to == "Philadelphia" & line == "Amtrak" ~ "Apple"))
-
-
-df_clean <- df %>%
-              mutate(clean = ifelse(is.na(Start_time) == TRUE, "remove","keep")) %>%
-              filter(clean == "keep") %>%
-              select(!clean) %>% 
-              mutate(LINE_NAME = case_when(line == "Northeast Corrdr" ~ "Northeast Corridor",
-                                        line == "No Jersey Coast" ~ "NJ Coast Line",
-                                        line == "Main Line" ~ "Main Line",
-                                        line == "Morristown Line" ~ "Morristown Line",
-                                        line == "Gladstone Branch" ~ "Gladstone Branch",
-                                        line == "Raritan Valley" ~ "Raritan Valley Line",
-                                        line == "Bergn Co. Line" ~ "Bergen County Line",
-                                        line == "Atl. City LIne" ~ "Atlnatic City Line",
-                                        line == "Montclair-Boonton" ~ "Montclair-Boonton Line",
-                                        line == "Princeton Shuttle" ~ "Princeton Dinky",
-                                        line == "Pascack Valley" ~ "Pascack Valley Line"),
-                     interval60 = floor_date(actual_datetime, unit = "hour")) %>%
-            left_join(NJTransitLines, by = "LINE_NAME") %>%
-            st_as_sf()
-
-
-
-# Attaching weather -----------------------------------
-weather.Panel <- 
-  riem_measures(station = "EWR", date_start = (as.Date(min(df_clean$date))-5), date_end = (as.Date(max(df_clean$date))+5)) %>%
-  dplyr::select(valid, tmpf, p01i, sknt)%>%
-  replace(is.na(.), 0) %>%
-    mutate(interval60 = ymd_h(substr(valid,1,13))) %>%
-    mutate(week = week(interval60),
-           dotw = wday(interval60, label=TRUE)) %>%
-    group_by(interval60) %>%
-    summarize(Temperature = max(tmpf),
-              Precipitation = sum(p01i),
-              Wind_Speed = max(sknt)) %>%
-    mutate(Temperature = ifelse(Temperature == 0, 42, Temperature))
-
-df_clean <- left_join(df_clean, weather.Panel, by = "interval60")
-
-unique(df_clean$line)
-
-unique(AmtrakLinesDf$NAME.1)
-unique(NJTransitLines$LINE_NAME)
-
-
-
+```{r cleaning_Stations}
+NJtransitstations %>%
+  filter(grepl("Anderson", STATION_ID))
 
 NJtransitstations %>%
-  filter(STATION_ID %in% AllStops$location) 
+  filter(grepl("Bay", STATION_ID))
 
-```
+NJtransitstations %>%
+  filter(grepl("Essex", STATION_ID))
+
+NJtransitstations %>%
+  filter(grepl("Glen Rock", STATION_ID))
+
+NJtransitstations %>%
+  filter(grepl("Hoboken", STATION_ID))
+
+NJtransitstations %>%
+  filter(grepl("Middletown", STATION_ID))
+
+NJtransitstations %>%
+  filter(grepl("Montclair", STATION_ID))
+
+NJtransitstations %>%
+  filter(grepl("Arlington", STATION_ID))
+
+NJtransitstations %>%
+  filter(grepl("Mountain", STATION_ID))
+
+NJtransitstations %>%
+  filter(grepl("Princeton", STATION_ID))
+
+NJtransitstations %>%
+  filter(grepl("Ramsey", STATION_ID))
+
+NJtransitstations %>%
+  filter(grepl("Secaucus", STATION_ID))
+
+NJtransitstations %>%
+  filter(grepl("Teterboro", STATION_ID))
+
+NJtransitstations %>%
+  filter(grepl("Watsessing", STATION_ID))
+
+NJtransitstations %>%
+  filter(grepl("Wayne", STATION_ID))
+
+NJtransitstations %>%
+  filter(grepl("Wood", STATION_ID))
 
 
-
-```{r}
-df_clean %>%
-  group_by(train_id, Year) %>%
-  summarize(mean_delay = mean(delay_minutes),
-            sd_delay = sd(delay_minutes),
-            mean_temperature = mean(Temperature),
-            sd_temperature = sd(Temperature),
-            mean_precipitation = mean(Precipitation),
-            sd_precipitation = sd(Precipitation))
-
-f <- df_clean %>%
-  filter(is.na(Temperature))
-
-NA_weather_dates <- unique(f$interval60)
-
-```
-
-
-```{r}
-```{r}
-Amtrak_stops <- bind_rows(
-                  df %>%
-                    filter(type == "Amtrak") %>%
-                    group_by(from) %>%
-                    summarize(total = n()) %>%
-                    rename(location = from),
-                  df %>%
-                    filter(type == "Amtrak") %>%
-                    group_by(to) %>%
-                    summarize(total = n()) %>%
-                    rename(location = to)) %>%
-                  arrange(location) %>%
-                  group_by(location) %>%
-                  summarize(total = sum(total))
-
-NJTransit_stops <- bind_rows(
-                      df %>%
-                        filter(type == "NJ Transit") %>%
-                        group_by(from) %>%
-                        summarize(total = n()) %>%
-                        rename(location = from),
-                      df %>%
-                        filter(type == "NJ Transit") %>%
-                        group_by(to) %>%
-                        summarize(total = n()) %>%
-                        rename(location = to)) %>%
-                      arrange(location) %>%
-                      group_by(location) %>%
-                      summarize(total = sum(total))
-
-AllStops <- bind_rows(Amtrak_stops, NJTransit_stops) %>%
-              group_by(location) %>%
-              summarise(total = sum(total))
-
-```
 
 ```
