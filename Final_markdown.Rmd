@@ -284,6 +284,8 @@ ggplot(data = cat %>%
   labs(x = "Categorical Variables",
        y = "Delay in Minutes",
        title = "Cateogrical Variables Average Delay")
+
+ggsave("Categorical_Variables.jpg", width = 16, height = 9, unit = "in", dpi = 300)
 ```
 
 ## station delays
@@ -301,6 +303,8 @@ ggplot(data = cat %>%
        y = "Delay in Minutes",
        title = "Cateogrical Variables Average Delay") +
   coord_flip()
+
+ggsave("Station_Delay.jpg", width = 16*1.5, height = 9*1.5, unit = "in", dpi = 300)
 ```
 
 ## station delays by geography
@@ -414,6 +418,8 @@ df_shp %>%
        y = "Average Delay",
        x = "Date") +
   plotTheme()
+
+ggsave("smooth_line_delay.jpg", width = 16, height = 9, unit = "in", dpi = 300)
 ```
 
 
@@ -474,6 +480,8 @@ df_shp %>%
        y = "Average Delay",
        x = "Date") +
   plotTheme()
+
+ggsave("smooth_Stop_delay.jpg", width = 16, height = 9, unit = "in", dpi = 300)
 ```
 
 
