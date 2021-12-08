@@ -110,22 +110,21 @@ NJshp <- tigris::states() %>%
 
 
 ```{r}
+DataExplorer::introduce(df)
 DataExplorer::plot_intro(df)
-DataExplorer::introduce(UniqueTweetsDatasetExp)
-DataExplorer::plot_intro(UniqueTweetsDatasetExp)
-DataExplorer::plot_density(UniqueTweetsDatasetExp)
-DataExplorer::plot_bar(UniqueTweetsDatasetExp)
+DataExplorer::plot_density(df)
+DataExplorer::plot_bar(df)
 ```
 
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
-DataExplorer::plot_histogram(UniqueTweetsDatasetExp)
+DataExplorer::plot_histogram(df)
 ```
 
 Additionally, we've included a correlation table to show how the variables we made are or are not correlated.
 
 
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
-DataExplorer::plot_correlation(df_shp)
+DataExplorer::plot_correlation(df)
 ```
 
 # Attaching Geography
@@ -285,7 +284,7 @@ ggplot(data = cat %>%
        y = "Delay in Minutes",
        title = "Cateogrical Variables Average Delay")
 
-ggsave("Categorical_Variables.jpg", width = 16, height = 9, unit = "in", dpi = 300)
+#ggsave("Categorical_Variables.jpg", width = 16, height = 9, unit = "in", dpi = 300)
 ```
 
 ## station delays
@@ -304,7 +303,7 @@ ggplot(data = cat %>%
        title = "Cateogrical Variables Average Delay") +
   coord_flip()
 
-ggsave("Station_Delay.jpg", width = 16*1.5, height = 9*1.5, unit = "in", dpi = 300)
+#ggsave("Station_Delay.jpg", width = 16*1.5, height = 9*1.5, unit = "in", dpi = 300)
 ```
 
 ## station delays by geography
@@ -344,6 +343,7 @@ df_shp %>%
   labs(title = "Delay in minutes going from a Station") +
   mapTheme()
 
+#ggsave("Delay_from_station.jpg", width = 16, height = 9, unit = "in", dpi = 300)
 ```
 
 ## Line delays by geography
@@ -384,7 +384,7 @@ df_shp %>%
   labs(title = "Delay in minutes going to a Station") +
   mapTheme()
 
-
+ggsave("Delay_to_station.jpg", width = 16, height = 9, unit = "in", dpi = 300)
 ```
 ## Train delays
 
@@ -419,7 +419,7 @@ df_shp %>%
        x = "Date") +
   plotTheme()
 
-ggsave("smooth_line_delay.jpg", width = 16, height = 9, unit = "in", dpi = 300)
+#ggsave("smooth_line_delay.jpg", width = 16, height = 9, unit = "in", dpi = 300)
 ```
 
 
@@ -446,7 +446,7 @@ animate(
   transition_reveal(day), 
   width = 800, height = 800)
 
-anim_save(filename = "LINE_NAME.gif",animation = last_animation())
+#anim_save(filename = "LINE_NAME.gif",animation = last_animation())
 ```
 
 
@@ -481,7 +481,7 @@ df_shp %>%
        x = "Date") +
   plotTheme()
 
-ggsave("smooth_Stop_delay.jpg", width = 16, height = 9, unit = "in", dpi = 300)
+#ggsave("smooth_Stop_delay.jpg", width = 16, height = 9, unit = "in", dpi = 300)
 ```
 
 
@@ -506,7 +506,7 @@ animate(
   transition_reveal(day), 
   width = 800, height = 800)
 
-anim_save(filename = "stop_sequence.gif",animation = last_animation())
+#anim_save(filename = "stop_sequence.gif",animation = last_animation())
 ```
 
 ```{r}
@@ -540,7 +540,7 @@ remove <- c("from_id","to_id","type","interval60","line","date","scheduled_datet
 
 Sample <- df %>%
           select(!remove)
-Sample <- Sample[sample(nrow(Sample), size = 1000000), ]
+Sample <- Sample[sample(nrow(Sample), size = nrow(Sample) *.5), ]
 
 Test <- df %>%
           select(!remove) %>%
@@ -548,7 +548,9 @@ Test <- df %>%
           filter(from %in% Sample$from) %>%
           filter(to %in% Sample$to) %>%
           filter(LINE_NAME %in% Sample$LINE_NAME) %>%
-          na.omit()
+          na.omit() 
+
+#to test use slice()
 
 Sample <- Sample %>%
             select(!ID)
@@ -612,7 +614,7 @@ Test %>%
 
 ```
 
-### Average Predicted Delay From Station 
+## Average Predicted Delay From Station 
 ```{r}
 Test %>%
   group_by(from) %>%
@@ -631,7 +633,7 @@ Test %>%
 
 
 
-### Average Predicated Delay To Station
+## Average Predicated Delay To Station
 
 ```{r}
 
