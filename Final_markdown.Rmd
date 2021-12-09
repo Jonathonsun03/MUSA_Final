@@ -344,6 +344,25 @@ df_shp %>%
   mapTheme()
 
 #ggsave("Delay_from_station.jpg", width = 16, height = 9, unit = "in", dpi = 300)
+
+
+df_shp %>%
+  st_drop_geometry() %>%
+  group_by(from) %>%
+  summarize(mean_delay = mean(delay_minutes)) %>%
+  rename(STATION_ID = from) %>%
+  left_join(NJtransitstations, by = "STATION_ID") %>%
+  st_as_sf() %>%
+  ggplot() +
+  geom_sf(data = NJTransitLines) +
+  geom_sf(aes(color = mean_delay)) +
+  geom_sf(data = NJshp, fill = "transparent") +
+  labs(title = "Delay in minutes going from a Station") +
+  scale_color_gradient(low = "green",
+                       high = "red") +
+  mapTheme()
+
+ggsave("Delay_from_station.jpg", width = 9*.5, height = 16*.5, unit = "in", dpi = 300)
 ```
 
 ## Line delays by geography
@@ -384,7 +403,26 @@ df_shp %>%
   labs(title = "Delay in minutes going to a Station") +
   mapTheme()
 
-ggsave("Delay_to_station.jpg", width = 16, height = 9, unit = "in", dpi = 300)
+ggsave("Delay_to_station.jpg", width = 16*.5, height = 9*.5, unit = "in", dpi = 300)
+
+
+df_shp %>%
+  st_drop_geometry() %>%
+  group_by(to) %>%
+  summarize(mean_delay = mean(delay_minutes)) %>%
+  rename(STATION_ID = to) %>%
+  left_join(NJtransitstations, by = "STATION_ID") %>%
+  st_as_sf() %>%
+  ggplot() +
+  geom_sf(data = NJTransitLines) +
+  geom_sf(aes(color = mean_delay)) +
+  geom_sf(data = NJshp, fill = "transparent") +
+  labs(title = "Delay in minutes going to a Station") +
+  scale_color_gradient(low = "green",
+                       high = "red") +
+  mapTheme()
+
+ggsave("Delay_to_station.jpg", width = 9*.5, height = 16*.5, unit = "in", dpi = 300)
 ```
 ## Train delays
 
@@ -476,9 +514,9 @@ df_shp %>%
   geom_smooth(se = FALSE) +
   geom_vline(xintercept = as.numeric(ymd(c("2020-01-20"))), linetype = "dashed") +
   labs(title = "Average Delay Over Time",
-       subtitle = "By Line",
+       subtitle = "By Stop Sequence",
        y = "Average Delay",
-       x = "Date") +
+       x = "Day") +
   plotTheme()
 
 #ggsave("smooth_Stop_delay.jpg", width = 16, height = 9, unit = "in", dpi = 300)
@@ -496,9 +534,9 @@ animate(
   geom_smooth(se = FALSE) +
   geom_vline(xintercept = covid_day, linetype = "dashed") +
   labs(title = "Average Delay Over Time",
-       subtitle = "By Line",
+       subtitle = "By Stop Sequence",
        y = "Average Delay",
-       x = "Date") +
+       x = "Day") +
   plotTheme() +
   facet_wrap(~stop_sequence) +
   theme(legend.position = "hide",
@@ -506,7 +544,7 @@ animate(
   transition_reveal(day), 
   width = 800, height = 800)
 
-#anim_save(filename = "stop_sequence.gif",animation = last_animation())
+anim_save(filename = "stop_sequence.gif",animation = last_animation())
 ```
 
 ```{r}
@@ -601,17 +639,21 @@ reg.cv
 
 ```{r}
 
-
 Test %>%
   group_by(LINE_NAME) %>%
   summarize(Mean_Delay = mean(Delay.Predict)) %>%
   left_join(NJTransitLines, by = "LINE_NAME") %>%
   st_as_sf() %>%
   ggplot() +
-  geom_sf(aes(color = Mean_Delay)) +
-  geom_sf(data = NJshp, fill = "transparent")
+  geom_sf(aes(color = Mean_Delay,
+              linetype = LINE_NAME)) +
+  geom_sf(data = NJshp, fill = "transparent") +
+  labs(title = "Estimated Delay by Line") +
+  scale_color_gradient(low = "green",
+                       high = "red") +
+  mapTheme()
 
-
+ggsave("Modeled_Delay_Line.jpg", width = 9*.5, height = 16*.5, unit = "in", dpi = 300)
 ```
 
 ## Average Predicted Delay From Station 
@@ -624,11 +666,15 @@ Test %>%
               select(STATION_ID,LATITUDE,LONGITUDE,geometry), by = "STATION_ID") %>%
   st_as_sf() %>%
   ggplot() +
+  geom_sf(data = NJTransitLines) +
   geom_sf(aes(color = Mean_Delay)) +
   geom_sf(data = NJshp, fill = "transparent") +
   labs(title = "from station average of predicted delay") +
+  scale_color_gradient(low = "green",
+                       high = "red") +
   mapTheme()
 
+ggsave("Modeled_Delay_from_station.jpg", width = 9*.5, height = 16*.5, unit = "in", dpi = 300)
 ```
 
 
@@ -645,10 +691,15 @@ Test %>%
               select(STATION_ID,LATITUDE,LONGITUDE,geometry), by = "STATION_ID") %>%
   st_as_sf() %>%
   ggplot() +
+  geom_sf(data = NJTransitLines) +
   geom_sf(aes(color = Mean_Delay)) +
   geom_sf(data = NJshp, fill = "transparent") +
   labs(title = "to station average of predicted delay") +
+  scale_color_gradient(low = "green",
+                       high = "red") +
   mapTheme()
+
+ggsave("Modeled_Delay_to_station.jpg", width = 9*.5, height = 16*.5, unit = "in", dpi = 300)
 ```
 
 
