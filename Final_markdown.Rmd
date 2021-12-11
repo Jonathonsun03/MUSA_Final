@@ -1,8 +1,13 @@
 ---
-title: "Final_Markdown"
-author: "Jonathon Sun"
-date: "11/20/2021"
+title: "NJ Transit Predictive Analytics"
+author: "Jonathon Sun & Johnathan Clementi"
+date: "12/17/2021"
 output: html_document
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    code_folding: hide
 ---
 
 Link to canva presentation: https://www.canva.com/design/DAEx6RRkde0/share/preview?token=u2xD2CeqLfZqDMSWH58_Dw&role=EDITOR&utm_content=DAEx6RRkde0&utm_campaign=designshare&utm_medium=link&utm_source=sharebutton 
@@ -11,7 +16,7 @@ Link to canva presentation: https://www.canva.com/design/DAEx6RRkde0/share/previ
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
-pacman::p_load(tidyverse, vroom, DataExplorer, lubridate, sf, tidycensus, tigris, hms, riem, slider, scales, caret,RcppEigen, ckanr, FNN, ggcorplot, grid, gridExtra, gtools, httr, kableExtra, modelsummary,tidycensus, spdep, stargazer, tmap, viridis, zipcodeR, DT, dplyr, scales, ggthemes, plotly, gganimate)
+pacman::p_load(tidyverse, vroom, DataExplorer, lubridate, sf, tidycensus, tigris, hms, riem, slider, scales, caret,RcppEigen, ckanr, FNN, grid, gridExtra, gtools, httr, kableExtra, modelsummary,tidycensus, spdep, stargazer, tmap, viridis, zipcodeR, DT, dplyr, scales, ggthemes, plotly, gganimate)
 
 library(ggcorrplot)
 
@@ -36,10 +41,22 @@ Project option 4 - Forecast Metro train delays in and around NYC: An amazing new
 ```{r}
 import <- paste0("Amtrak/",list.files("Amtrak"))
 
-df <- read.csv(import[1])
+df <- data.frame()
 
+############ TO RUN FULL MODEL, UNCOMMENT THIS CODE ############
+# for (i in 2:nrow(as_tibble(import))) {
+#   df <- rbind(df,read.csv(import[i]))
+# }
+
+
+############ TO RUN SAFE MODEL, UNCOMMENT THIS CODE ############
 for (i in 2:nrow(as_tibble(import))) {
-  df <- rbind(df,read.csv(import[i]))
+  if(grepl("2020",import[i])){
+      df <- rbind(df,read.csv(import[i]))
+  } else {
+    # print(paste(import[i], "not added"))
+  }
+
 }
 
 df <- df %>%
@@ -55,6 +72,7 @@ df <- df %>%
          Year = year(date),
          train_lag = lag(train_id),
          time_lag_dumb = lag(delay_minutes),
+         # Time lag dumb used to get the lag of the station previous in station sequence
          train_end = train_lag == train_id,
          station_lag = ifelse(train_end == TRUE, time_lag_dumb,NA),
          accumulated_delay = delay_minutes + station_lag,
@@ -109,14 +127,14 @@ NJshp <- tigris::states() %>%
 ```
 
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 DataExplorer::introduce(df)
 DataExplorer::plot_intro(df)
 DataExplorer::plot_density(df)
 DataExplorer::plot_bar(df)
 ```
 
-```{r echo=FALSE, message=FALSE, warning=FALSE}
+```{r eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
 DataExplorer::plot_histogram(df)
 ```
 
@@ -161,17 +179,18 @@ df <- df %>%
               mutate(clean = ifelse(is.na(Start_time) == TRUE, "remove","keep")) %>%
               filter(clean == "keep") %>%
               select(!clean) %>% 
-              mutate(LINE_NAME = case_when(line == "Northeast Corrdr" ~ "Northeast Corridor",
-                                        line == "No Jersey Coast" ~ "NJ Coast Line",
-                                        line == "Main Line" ~ "Main Line",
-                                        line == "Morristown Line" ~ "Morristown Line",
-                                        line == "Gladstone Branch" ~ "Gladstone Branch",
-                                        line == "Raritan Valley" ~ "Raritan Valley Line",
-                                        line == "Bergn Co. Line" ~ "Bergen County Line",
-                                        line == "Atl. City LIne" ~ "Atlnatic City Line",
-                                        line == "Montclair-Boonton" ~ "Montclair-Boonton Line",
-                                        line == "Princeton Shuttle" ~ "Princeton Dinky",
-                                        line == "Pascack Valley" ~ "Pascack Valley Line")) 
+              mutate(LINE_NAME = case_when(line == "Atl. City Line" ~ "Atlantic City Line",
+                                           line == "Bergen Co. Line " ~ "Bergen County Line", 
+                                           # Be careful about the space at the end the Bergen Co. Line - was causing missing vals
+                                           line == "Gladstone Branch" ~ "Gladstone Branch",
+                                           line == "Main Line" ~ "Main Line",
+                                           line == "Montclair-Boonton" ~ "Montclair-Boonton Line",
+                                           line == "Morristown Line" ~ "Morristown Line",
+                                           line == "No Jersey Coast" ~ "NJ Coast Line",
+                                           line == "Northeast Corrdr" ~ "Northeast Corridor",
+                                           line == "Pascack Valley" ~ "Pascack Valley Line",
+                                           line == "Princeton Shuttle" ~ "Princeton Dinky",
+                                           line == "Raritan Valley" ~ "Raritan Valley Line")) 
 
 df_shp <- left_join(df, NJTransitLines, by = "LINE_NAME") %>%
             st_as_sf()
@@ -192,29 +211,29 @@ Station_clean <- df_shp %>%
 
 f <- c("Anderson Street-Hackensack",
        "Atlantic City",
-  "Bay Street-Montclair",
-  "Broadway",
-  "Essex Street-Hackensack",
-  "Glen Rock-Boro Hall",
-  "Glen Rock-Main",
-  "Hoboken Terminal",
-  "Middletown",
-  "Montclair St Univ",
-  "Mt Arlington",
-  "Mountain Station",
-  "Pennsauken Transit Center",
-  "30th Street Station",
-  "Princeton Jct.",
-  "Radburn",
-  "Ramsey",
-  "Rte 17 Ramsey",
-  "Secaucus Junction Upper Level",
-  "Secaucus Junction Lower Level",
-  "Secaucus Junction Upper Level",
-  "Teterboro-Williams Ave",
-  "Watsessing",
-  "Wayne Route 23 Transit Center",
-  "Wood-Ridge")
+       "Bay Street-Montclair",
+       "Broadway",
+       "Essex Street-Hackensack",
+       "Glen Rock-Boro Hall",
+       "Glen Rock-Main",
+       "Hoboken Terminal",
+       "Middletown",
+       "Montclair St Univ",
+       "Mt Arlington",
+       "Mountain Station",
+       "Pennsauken Transit Center",
+       "30th Street Station",
+       "Princeton Jct.",
+       "Radburn",
+       "Ramsey",
+       "Rte 17 Ramsey",
+       "Secaucus Junction Upper Level",
+       "Secaucus Junction Lower Level",
+       "Secaucus Junction Upper Level",
+       "Teterboro-Williams Ave",
+       "Watsessing",
+       "Wayne Route 23 Transit Center",
+       "Wood-Ridge")
 
 Station_clean <- bind_cols(Station_clean,f) %>%
                   rename(clean_name = ...3)
@@ -476,7 +495,7 @@ df_shp %>%
   geom_smooth(se = FALSE) +
   geom_vline(xintercept = as.numeric(ymd(c("2020-01-20"))), linetype = "dashed") +
   labs(title = "Average Delay Over Time",
-       subtitle = "By Line",
+       subtitle = "By Stop Sequence",
        y = "Average Delay",
        x = "Date") +
   plotTheme()
@@ -535,33 +554,41 @@ set.seed(111)
 #Valid <- lmdf[-trainIndex,]
 
 
-
-remove <- c("from_id","to_id","type","interval60","line","date","scheduled_datetime","actual_datetime","train_id")
+remove <- c("ID","from_id","to_id","train_id","type","interval60","line","date","scheduled_datetime",
+            "actual_datetime","Actual_time","accumulated_delay", "quintile_delay", "AM_PM")
 
 Sample <- df %>%
           select(!remove)
-Sample <- Sample[sample(nrow(Sample), size = nrow(Sample) *.5), ]
 
-Test <- df %>%
-          select(!remove) %>%
-          filter(!ID %in% Sample$ID) %>%
-          filter(from %in% Sample$from) %>%
-          filter(to %in% Sample$to) %>%
-          filter(LINE_NAME %in% Sample$LINE_NAME) %>%
-          na.omit() 
+Train <- filter(Sample, (week >= 1) & (week <= 15))
+
+Test <- filter(Sample, (week >= 16))
+
+# Test <- df %>%
+#           select(!remove) %>%
+#           filter(!ID %in% Sample$ID) %>%
+#           filter(from %in% Sample$from) %>%
+#           filter(to %in% Sample$to) %>%
+#           filter(LINE_NAME %in% Sample$LINE_NAME) %>%
+#           na.omit() 
 
 #to test use slice()
+# 
+# Train <- Train %>%
+#             select(!ID)
+# 
+# Test <- Test %>%
+#           select(!ID)
 
-Sample <- Sample %>%
-            select(!ID)
-
-Test <- Test %>%
-          select(!ID)
+# Garbage Collector!!
 gc()
+```
 
-#reg.training <- fastLm(delay_minutes ~ ., data = Sample)
 
-reg.training <- lm(delay_minutes ~ ., data = Sample)
+```{r runmodels}
+#reg.training <- fastLm(delay_minutes ~ ., data = Train)
+
+reg.training <- lm(delay_minutes ~ ., data = Train)
 
 #summary(reg.training) Our R squared is 1. Definitely an overfit model. We'll see how well it predicts though. 
 
@@ -591,7 +618,7 @@ fitControl <- trainControl(method = "cv", number = 5)
 set.seed(825)
 
 reg.cv <- 
-  train(delay_minutes ~ ., data = Sample, 
+  train(delay_minutes ~ ., data = Train, 
      method = "lm", trControl = fitControl, na.action = na.pass)
 
 reg.cv
