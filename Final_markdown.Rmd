@@ -2,7 +2,8 @@
 title: "NJ Transit Predictive Analytics"
 author: "Jonathon Sun & Johnathan Clementi"
 date: "12/17/2021"
-output: html_document
+output:
+  html_document:
     toc: true
     toc_float:
       collapsed: true
@@ -34,11 +35,12 @@ palette_2_colors <- c("#FF2AD4", "#00CCFF")
 palette_1_colors <- c("#00CCFF")
 ```
 
-# Case
+# Introduction and Motivation
 Project option 4 - Forecast Metro train delays in and around NYC: An amazing new dataset has popped up on Kaggle recently that list origin/destinations delays for Amtrak and NJ Transit trains. Can you predict train delays? Consider the time frame that it would be useful to have such predictions. Predicting 5 minutes out is not going to be as useful as 2-3 hours out. Consider training on a month and predicting for the next week or two. Consider time/space (train line, county etc.) cross validation. Many app use cases here.
 
-
-```{r}
+# Data
+#### Train Times
+```{r trainTimes}
 import <- paste0("Amtrak/",list.files("Amtrak"))
 
 df <- data.frame()
@@ -47,7 +49,7 @@ df <- data.frame()
 # for (i in 2:nrow(as_tibble(import))) {
 #   df <- rbind(df,read.csv(import[i]))
 # }
-
+############ TO RUN FULL MODEL, UNCOMMENT THIS CODE ############
 
 ############ TO RUN SAFE MODEL, UNCOMMENT THIS CODE ############
 for (i in 2:nrow(as_tibble(import))) {
@@ -58,48 +60,12 @@ for (i in 2:nrow(as_tibble(import))) {
   }
 
 }
-
-df <- df %>%
-  filter(type == "NJ Transit") %>%
-  mutate(date = ymd(date),
-         scheduled_time = ymd_hms(scheduled_time),
-         actual_time = ymd_hms(actual_time),
-         week = week(date),
-         DotW = wday(date),
-         Start_time = as_hms(scheduled_time),
-         Actual_time = as_hms(actual_time),
-         AM_PM = ifelse(am(Actual_time) == TRUE, "AM","PM"),
-         Year = year(date),
-         train_lag = lag(train_id),
-         time_lag_dumb = lag(delay_minutes),
-         # Time lag dumb used to get the lag of the station previous in station sequence
-         train_end = train_lag == train_id,
-         station_lag = ifelse(train_end == TRUE, time_lag_dumb,NA),
-         accumulated_delay = delay_minutes + station_lag,
-         quintile_delay = q5(delay_minutes),
-         ID = row_number()) %>%
-  select(!c("time_lag_dumb","train_end","train_lag")) %>%
-  rename(scheduled_datetime = scheduled_time,
-         actual_datetime = actual_time)
-
-Analysis_Dates <- seq(min(as.Date(df$date)), max(as.Date(df$date)), by="days")
-Analysis_Dates <- as.tibble(Analysis_Dates) %>%
-                  mutate(day = row_number()) %>%
-                  rename(date = value)
-
-df <- left_join(df,Analysis_Dates, by = "date")
-
-
+############ TO RUN SAFE MODEL, UNCOMMENT THIS CODE ############
 ```
 
 
-# Exploring Data types
-
-
-
-
-# Train Routes
-```{r message=FALSE, warning=FALSE, include=FALSE}
+#### Train Routes
+```{r trainRoutes message=FALSE, warning=FALSE, include=FALSE}
 # There's no complete set of NJ transit lines anymore
 
 NJTransitLines <- bind_rows(st_read("https://opendata.arcgis.com/datasets/fc24118ac4a0445da5e09f7692075757_13.geojson"),
@@ -126,27 +92,54 @@ NJshp <- tigris::states() %>%
              filter(NAME == "New Jersey")
 ```
 
-
-```{r eval=FALSE, include=FALSE}
-DataExplorer::introduce(df)
-DataExplorer::plot_intro(df)
-DataExplorer::plot_density(df)
-DataExplorer::plot_bar(df)
-```
-
-```{r eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
-DataExplorer::plot_histogram(df)
-```
-
-Additionally, we've included a correlation table to show how the variables we made are or are not correlated.
-
-
-```{r echo=FALSE, message=FALSE, warning=FALSE}
-DataExplorer::plot_correlation(df)
-```
-
-# Attaching Geography
+### Data Cleaning
 ```{r}
+df <- df %>%
+  filter(type == "NJ Transit") %>%
+  mutate(date = ymd(date),
+         scheduled_time = ymd_hms(scheduled_time),
+         actual_time = ymd_hms(actual_time),
+         week = week(date),
+         DotW = wday(date),
+         Start_time = as_hms(scheduled_time),
+         Actual_time = as_hms(actual_time),
+         AM_PM = ifelse(am(Actual_time) == TRUE, "AM","PM"),
+         Year = year(date),
+         # Code below used to get the lag of the station previous in station sequence
+         # Get train id of previous row
+         train_lag = lag(train_id),
+         # Find the delay at that station
+         time_lag_dumb = lag(delay_minutes),
+         # Check if current stop is on the same train as the previous stop
+         train_end = train_lag == train_id,
+         # If we're still on the same train, remove time_lag
+         station_lag = ifelse(train_end == TRUE, time_lag_dumb,NA),
+         accumulated_delay = delay_minutes + station_lag,
+         quintile_delay = q5(delay_minutes),
+         ID = row_number()) %>%
+  mutate(scheduled_TOD = case_when(hour(scheduled_time) < 7 | hour(scheduled_time) > 18 ~ "Overnight",
+                                 hour(scheduled_time) >= 7 & hour(scheduled_time) < 10 ~ "AM Rush",
+                                 hour(scheduled_time) >= 10 & hour(scheduled_time) < 15 ~ "Mid-Day",
+                                 hour(scheduled_time) >= 15 & hour(scheduled_time) <= 18 ~ "PM Rush")) %>%
+  select(!c("time_lag_dumb","train_end","train_lag")) %>%
+  rename(scheduled_datetime = scheduled_time,
+         actual_datetime = actual_time) 
+# %>%
+#   mutate(station_link = paste(from, to, sep = "-"))
+
+
+Analysis_Dates <- seq(min(as.Date(df$date)), max(as.Date(df$date)), by="days")
+Analysis_Dates <- as.tibble(Analysis_Dates) %>%
+                  mutate(day = row_number()) %>%
+                  rename(date = value)
+
+df <- left_join(df,Analysis_Dates, by = "date")
+
+
+```
+
+### Weather & Geography
+```{r weather}
 #df %>%
 #  filter(line %in% c("Amtrak","AMTRAK","AMTRAK REGIONAL")) %>%
 #  View()
@@ -170,11 +163,11 @@ weather.Panel <-
               Wind_Speed = max(sknt)) %>%
     mutate(Temperature = ifelse(Temperature == 0, 42, Temperature))
 
-df <- left_join(df %>% 
-                        mutate(interval60 = floor_date(actual_datetime, unit = "hour")), weather.Panel, by = "interval60")
+df <- left_join(df %>% mutate(interval60 = floor_date(actual_datetime, unit = "hour")), weather.Panel, by = "interval60")
+```
 
 
-
+```{r geography}
 df <- df %>%
               mutate(clean = ifelse(is.na(Start_time) == TRUE, "remove","keep")) %>%
               filter(clean == "keep") %>%
@@ -196,7 +189,7 @@ df_shp <- left_join(df, NJTransitLines, by = "LINE_NAME") %>%
             st_as_sf()
 ```
 
-```{r}
+```{r cleanGeoms}
 NJtransitstations[149,2] <- "Middletown NY"
 NJtransitstations$STATION_ID <- trimws(NJtransitstations$STATION_ID)
 
@@ -245,7 +238,22 @@ df_shp$to <- str_replace(df_shp$to, Station_clean$from[i],Station_clean$clean_na
 
 ```
 
-# Exploratory Data
+# Exploratory Analyses
+
+#### Correlation Identification
+```{r eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+DataExplorer::introduce(df)
+DataExplorer::plot_intro(df)
+DataExplorer::plot_density(df)
+DataExplorer::plot_bar(df)
+DataExplorer::plot_histogram(df)
+```
+
+Additionally, we've included a correlation table to show how the variables we made are or are not correlated.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+DataExplorer::plot_correlation(df %>% select(!line))
+```
 
 ```{r}
 numericVars <- df_shp %>%
@@ -273,7 +281,7 @@ Categorical <- df_shp %>%
                 na.omit() %>%
                 select(where(is.character),delay_minutes)
 
-colnames(Categorical)
+#colnames(Categorical)
 
 cat <- Categorical %>%
         select(colnames(Categorical)[2], delay_minutes) %>%
@@ -293,7 +301,7 @@ cat <- bind_rows(cat,t)
 
 ```{r}
 ggplot(data = cat %>%
-         filter(!Variable %in% c("from","to","train_id","type")),
+         filter(!Variable %in% c("from","to","train_id","type","line")),
        aes(x = Value,  y = delay_minutes)) +
   geom_bar(stat = "summary", fun.y = "mean") +
   scale_y_continuous(labels = comma) +
@@ -305,9 +313,36 @@ ggplot(data = cat %>%
 
 #ggsave("Categorical_Variables.jpg", width = 16, height = 9, unit = "in", dpi = 300)
 ```
+### Delays By Time of Day
+```{r message=FALSE, warning=FALSE}
+df %>%
+  mutate(delay_grtr5min = case_when(delay_minutes >= 5 ~ 1,
+                                    delay_minutes < 5 ~ 0)) %>%
+  filter(delay_grtr5min == 1) %>%
+  group_by(interval60, scheduled_TOD, LINE_NAME) %>%
+    tally() %>%
+  summarize(avg_trainsLate = mean(n)) %>%
+  ggplot() +
+    geom_histogram(aes(avg_trainsLate), binwidth = 1) +
+    facet_wrap(~factor(scheduled_TOD,levels=c("AM Rush", "Mid-Day", "PM Rush", "Overnight"))) +
+  plotTheme()
+```
 
-## station delays
+```{r}
+df %>%
+  mutate(delay_grtr5min = case_when(delay_minutes >= 5 ~ 1,
+                                    delay_minutes < 5 ~ 0)) %>%
+  filter(delay_grtr5min == 1) %>%
+  group_by(interval60) %>%
+  ggplot() +
+    geom_freqpoly(aes(hour(scheduled_datetime), color = LINE_NAME), size = 1, binwidth = 1) +
+  plotTheme()
+```
 
+
+
+
+## Station delays
 ```{r fig.height=12}
 ggplot(data = cat %>%
          filter(Variable %in% c("from","to")) %>%
@@ -346,9 +381,11 @@ df_shp %>%
          Bin_mean_delay = str_remove(Bin_mean_delay,"."),
          Bin_mean_delay = str_sub(Bin_mean_delay,1,nchar(Bin_mean_delay)-1)) %>%
   separate(Bin_mean_delay, into = c("Start","End"), sep = ",") %>%
-  mutate(Start = as.numeric(Start)) %>%
+  mutate(Start = round(as.numeric(Start),3),
+         End = round(as.numeric(End),3)) %>%
   arrange(Start) %>%
   mutate(Start = as.character(Start),
+         End = as.character(End),
          Interval = paste0(Start," - ",End),
          Interval = forcats::as_factor(Interval)) %>%
   rename(STATION_ID = from) %>%
@@ -387,9 +424,11 @@ df_shp %>%
          Bin_mean_delay = str_remove(Bin_mean_delay,"."),
          Bin_mean_delay = str_sub(Bin_mean_delay,1,nchar(Bin_mean_delay)-1)) %>%
   separate(Bin_mean_delay, into = c("Start","End"), sep = ",") %>%
-  mutate(Start = as.numeric(Start)) %>%
+  mutate(Start = round(as.numeric(Start),3),
+         End = round(as.numeric(End),3)) %>%
   arrange(Start) %>%
   mutate(Start = as.character(Start),
+         End = as.character(End),
          Interval = paste0(Start," - ",End),
          Interval = forcats::as_factor(Interval)) %>%
   rename(STATION_ID = to) %>%
@@ -407,7 +446,7 @@ ggsave("Delay_to_station.jpg", width = 16, height = 9, unit = "in", dpi = 300)
 ```
 ## Train delays
 
-```{r eval=FALSE, fig.height=, include=FALSE}
+```{r eval=FALSE, include=FALSE}
 ggplot(data = cat %>%
          filter(Variable %in% c("train_id")),
        aes(x = Value,  y = delay_minutes)) +
@@ -504,7 +543,7 @@ df_shp %>%
 ```
 
 
-```{r echo=FALSE, message=FALSE, warning=FALSE}
+```{r eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
 animate(
   df_shp %>%
   st_drop_geometry() %>%
@@ -555,10 +594,12 @@ set.seed(111)
 
 
 remove <- c("ID","from_id","to_id","train_id","type","interval60","line","date","scheduled_datetime",
-            "actual_datetime","Actual_time","accumulated_delay", "quintile_delay", "AM_PM")
+            "actual_datetime","Actual_time","accumulated_delay", "quintile_delay", "AM_PM", "status")
 
 Sample <- df %>%
-          select(!remove)
+          select(!remove) %>%
+          # Filter out Princeton Dinky because it didn't run during parts of pandemic
+          filter(LINE_NAME != "Princeton Dinky")
 
 Train <- filter(Sample, (week >= 1) & (week <= 15))
 
@@ -682,7 +723,7 @@ Test %>%
 # Appendix
 
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 df_clean %>%
   group_by(train_id, Year) %>%
   summarize(mean_delay = mean(delay_minutes),
@@ -699,7 +740,7 @@ NA_weather_dates <- unique(f$interval60)
 
 ```
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 Amtrak_stops <- bind_rows(
                   df %>%
                     filter(type == "Amtrak") %>%
@@ -786,7 +827,7 @@ combined <- rbind_tigris(
 ```
 
 
-```{r cleaning_Stations}
+```{r cleaning_Stations, eval=FALSE, include=FALSE}
 
 NJtransitstations %>%
   filter(grepl("Anderson", STATION_ID))
