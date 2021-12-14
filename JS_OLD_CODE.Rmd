@@ -1,22 +1,17 @@
 ---
-title: "NJ Transit Predictive Analytics"
-author: "Jonathon Sun & Johnathan Clementi"
-date: "12/17/2021"
-output:
-  html_document:
-    toc: true
-    toc_float:
-      collapsed: true
-      smooth_scroll: true
-    code_folding: hide
+title: "Final_Markdown"
+author: "Jonathon Sun"
+date: "11/20/2021"
+output: html_document
 ---
+
+Link to canva presentation: https://www.canva.com/design/DAEx6RRkde0/share/preview?token=u2xD2CeqLfZqDMSWH58_Dw&role=EDITOR&utm_content=DAEx6RRkde0&utm_campaign=designshare&utm_medium=link&utm_source=sharebutton 
 
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
 pacman::p_load(tidyverse, vroom, DataExplorer, lubridate, sf, tidycensus, tigris, hms, riem, slider, scales, caret,RcppEigen, ckanr, FNN, ggcorplot, grid, gridExtra, gtools, httr, kableExtra, modelsummary,tidycensus, spdep, stargazer, tmap, viridis, zipcodeR, DT, dplyr, scales, ggthemes, plotly, gganimate)
-
 
 library(ggcorrplot)
 
@@ -34,34 +29,60 @@ palette_2_colors <- c("#FF2AD4", "#00CCFF")
 palette_1_colors <- c("#00CCFF")
 ```
 
-# Introduction and Motivation
+# Case
 Project option 4 - Forecast Metro train delays in and around NYC: An amazing new dataset has popped up on Kaggle recently that list origin/destinations delays for Amtrak and NJ Transit trains. Can you predict train delays? Consider the time frame that it would be useful to have such predictions. Predicting 5 minutes out is not going to be as useful as 2-3 hours out. Consider training on a month and predicting for the next week or two. Consider time/space (train line, county etc.) cross validation. Many app use cases here.
 
-# Data
-#### Train Times
-```{r trainTimes, message=FALSE, warning=FALSE}
+
+```{r}
 import <- paste0("Amtrak/",list.files("Amtrak"))
 
-df <- data.frame()
+df <- read.csv(import[1])
 
-############ TO RUN FULL MODEL, UNCOMMENT THIS CODE ############
-# for (i in 2:nrow(as_tibble(import))) {
-#   df <- rbind(df,read.csv(import[i]))
-# }
-############ TO RUN FULL MODEL, UNCOMMENT THIS CODE ############
-
-############ TO RUN SAFE MODEL, UNCOMMENT THIS CODE ############
 for (i in 2:nrow(as_tibble(import))) {
-  if(grepl("2020",import[i])){
-      df <- rbind(df,read.csv(import[i]))
-  } else {
-    # print(paste(import[i], "not added"))
-  }
-
+  df <- rbind(df,read.csv(import[i]))
 }
-############ TO RUN SAFE MODEL, UNCOMMENT THIS CODE ############
 
-# Stations There's no complete set of NJ transit lines anymore ---------------------------
+df <- df %>%
+  filter(type == "NJ Transit") %>%
+  mutate(date = ymd(date),
+         scheduled_time = ymd_hms(scheduled_time),
+         actual_time = ymd_hms(actual_time),
+         week = week(date),
+         DotW = wday(date),
+         Start_time = as_hms(scheduled_time),
+         Actual_time = as_hms(actual_time),
+         AM_PM = ifelse(am(Actual_time) == TRUE, "AM","PM"),
+         Year = year(date),
+         train_lag = lag(train_id),
+         time_lag_dumb = lag(delay_minutes),
+         train_end = train_lag == train_id,
+         station_lag = ifelse(train_end == TRUE, time_lag_dumb,NA),
+         accumulated_delay = delay_minutes + station_lag,
+         quintile_delay = q5(delay_minutes),
+         ID = row_number()) %>%
+  select(!c("time_lag_dumb","train_end","train_lag")) %>%
+  rename(scheduled_datetime = scheduled_time,
+         actual_datetime = actual_time)
+
+Analysis_Dates <- seq(min(as.Date(df$date)), max(as.Date(df$date)), by="days")
+Analysis_Dates <- as.tibble(Analysis_Dates) %>%
+                  mutate(day = row_number()) %>%
+                  rename(date = value)
+
+df <- left_join(df,Analysis_Dates, by = "date")
+
+
+```
+
+
+# Exploring Data types
+
+
+
+
+# Train Routes
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# There's no complete set of NJ transit lines anymore
 
 NJTransitLines <- bind_rows(st_read("https://opendata.arcgis.com/datasets/fc24118ac4a0445da5e09f7692075757_13.geojson"),
                             st_read("https://opendata.arcgis.com/datasets/fc24118ac4a0445da5e09f7692075757_9.geojson"),
@@ -85,50 +106,29 @@ NJtransitstations <- st_read("https://opendata.arcgis.com/datasets/4809dada94c54
 
 NJshp <- tigris::states() %>%
              filter(NAME == "New Jersey")
-
-df <- df %>%
-  filter(type == "NJ Transit") %>%
-  mutate(date = ymd(date),
-         scheduled_time = ymd_hms(scheduled_time),
-         actual_time = ymd_hms(actual_time),
-         week = week(date),
-         DotW = wday(date),
-         Start_time = as_hms(scheduled_time),
-         Actual_time = as_hms(actual_time),
-         AM_PM = ifelse(am(Actual_time) == TRUE, "AM","PM"),
-         Year = year(date),
-         # Code below used to get the lag of the station previous in station sequence
-         # Get train id of previous row
-         train_lag = lag(train_id),
-         # Find the delay at that station
-         time_lag_dumb = lag(delay_minutes),
-         # Check if current stop is on the same train as the previous stop
-         train_end = train_lag == train_id,
-         # If we're still on the same train, remove time_lag
-         station_lag = ifelse(train_end == TRUE, time_lag_dumb,NA),
-         accumulated_delay = delay_minutes + station_lag,
-         quintile_delay = q5(delay_minutes),
-         ID = row_number()) %>%
-  mutate(scheduled_TOD = case_when(hour(scheduled_time) < 7 | hour(scheduled_time) > 18 ~ "Overnight",
-                                 hour(scheduled_time) >= 7 & hour(scheduled_time) < 10 ~ "AM Rush",
-                                 hour(scheduled_time) >= 10 & hour(scheduled_time) < 15 ~ "Mid-Day",
-                                 hour(scheduled_time) >= 15 & hour(scheduled_time) <= 18 ~ "PM Rush")) %>%
-  select(!c("time_lag_dumb","train_end","train_lag")) %>%
-  rename(scheduled_datetime = scheduled_time,
-         actual_datetime = actual_time) 
-# %>%
-#   mutate(station_link = paste(from, to, sep = "-"))
+```
 
 
-Analysis_Dates <- seq(min(as.Date(df$date)), max(as.Date(df$date)), by="days")
-Analysis_Dates <- as.tibble(Analysis_Dates) %>%
-                  mutate(day = row_number()) %>%
-                  rename(date = value)
+```{r}
+DataExplorer::introduce(df)
+DataExplorer::plot_intro(df)
+DataExplorer::plot_density(df)
+DataExplorer::plot_bar(df)
+```
 
-df <- left_join(df,Analysis_Dates, by = "date")
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+DataExplorer::plot_histogram(df)
+```
 
-# Weather -------------------------------------
+Additionally, we've included a correlation table to show how the variables we made are or are not correlated.
 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+DataExplorer::plot_correlation(df)
+```
+
+# Attaching Geography
+```{r}
 #df %>%
 #  filter(line %in% c("Amtrak","AMTRAK","AMTRAK REGIONAL")) %>%
 #  View()
@@ -138,7 +138,7 @@ df <- left_join(df,Analysis_Dates, by = "date")
 #                               from == "Philadelphia" & to == "New York Penn Station" & line == "Amtrak" ~ "Something",
 #                               from == "New York Penn Station" & to == "Philadelphia" & line == "Amtrak" ~ "Apple"))
 
-
+# Attaching weather -----------------------------------
 weather.Panel <- 
   riem_measures(station = "EWR", date_start = (as.Date(min(df$date))-5), date_end = (as.Date(max(df$date))+5)) %>%
   dplyr::select(valid, tmpf, p01i, sknt)%>%
@@ -152,32 +152,32 @@ weather.Panel <-
               Wind_Speed = max(sknt)) %>%
     mutate(Temperature = ifelse(Temperature == 0, 42, Temperature))
 
-df <- left_join(df %>% mutate(interval60 = floor_date(actual_datetime, unit = "hour")), weather.Panel, by = "interval60")
+df <- left_join(df %>% 
+                        mutate(interval60 = floor_date(actual_datetime, unit = "hour")), weather.Panel, by = "interval60")
 
-#Attaching Geography -----------------------------------
+
 
 df <- df %>%
               mutate(clean = ifelse(is.na(Start_time) == TRUE, "remove","keep")) %>%
               filter(clean == "keep") %>%
               select(!clean) %>% 
-              mutate(LINE_NAME = case_when(line == "Atl. City Line" ~ "Atlantic City Line",
-                                           line == "Bergen Co. Line " ~ "Bergen County Line", 
-                                           # Be careful about the space at the end the Bergen Co. Line - was causing missing vals
-                                           line == "Gladstone Branch" ~ "Gladstone Branch",
-                                           line == "Main Line" ~ "Main Line",
-                                           line == "Montclair-Boonton" ~ "Montclair-Boonton Line",
-                                           line == "Morristown Line" ~ "Morristown Line",
-                                           line == "No Jersey Coast" ~ "NJ Coast Line",
-                                           line == "Northeast Corrdr" ~ "Northeast Corridor",
-                                           line == "Pascack Valley" ~ "Pascack Valley Line",
-                                           line == "Princeton Shuttle" ~ "Princeton Dinky",
-                                           line == "Raritan Valley" ~ "Raritan Valley Line")) 
+              mutate(LINE_NAME = case_when(line == "Northeast Corrdr" ~ "Northeast Corridor",
+                                        line == "No Jersey Coast" ~ "NJ Coast Line",
+                                        line == "Main Line" ~ "Main Line",
+                                        line == "Morristown Line" ~ "Morristown Line",
+                                        line == "Gladstone Branch" ~ "Gladstone Branch",
+                                        line == "Raritan Valley" ~ "Raritan Valley Line",
+                                        line == "Bergn Co. Line" ~ "Bergen County Line",
+                                        line == "Atl. City LIne" ~ "Atlnatic City Line",
+                                        line == "Montclair-Boonton" ~ "Montclair-Boonton Line",
+                                        line == "Princeton Shuttle" ~ "Princeton Dinky",
+                                        line == "Pascack Valley" ~ "Pascack Valley Line")) 
 
 df_shp <- left_join(df, NJTransitLines, by = "LINE_NAME") %>%
             st_as_sf()
+```
 
-# Cleaning Geometry ----------------------------------
-
+```{r}
 NJtransitstations[149,2] <- "Middletown NY"
 NJtransitstations$STATION_ID <- trimws(NJtransitstations$STATION_ID)
 
@@ -192,29 +192,29 @@ Station_clean <- df_shp %>%
 
 f <- c("Anderson Street-Hackensack",
        "Atlantic City",
-       "Bay Street-Montclair",
-       "Broadway",
-       "Essex Street-Hackensack",
-       "Glen Rock-Boro Hall",
-       "Glen Rock-Main",
-       "Hoboken Terminal",
-       "Middletown",
-       "Montclair St Univ",
-       "Mt Arlington",
-       "Mountain Station",
-       "Pennsauken Transit Center",
-       "30th Street Station",
-       "Princeton Jct.",
-       "Radburn",
-       "Ramsey",
-       "Rte 17 Ramsey",
-       "Secaucus Junction Upper Level",
-       "Secaucus Junction Lower Level",
-       "Secaucus Junction Upper Level",
-       "Teterboro-Williams Ave",
-       "Watsessing",
-       "Wayne Route 23 Transit Center",
-       "Wood-Ridge")
+  "Bay Street-Montclair",
+  "Broadway",
+  "Essex Street-Hackensack",
+  "Glen Rock-Boro Hall",
+  "Glen Rock-Main",
+  "Hoboken Terminal",
+  "Middletown",
+  "Montclair St Univ",
+  "Mt Arlington",
+  "Mountain Station",
+  "Pennsauken Transit Center",
+  "30th Street Station",
+  "Princeton Jct.",
+  "Radburn",
+  "Ramsey",
+  "Rte 17 Ramsey",
+  "Secaucus Junction Upper Level",
+  "Secaucus Junction Lower Level",
+  "Secaucus Junction Upper Level",
+  "Teterboro-Williams Ave",
+  "Watsessing",
+  "Wayne Route 23 Transit Center",
+  "Wood-Ridge")
 
 Station_clean <- bind_cols(Station_clean,f) %>%
                   rename(clean_name = ...3)
@@ -226,24 +226,9 @@ df_shp$to <- str_replace(df_shp$to, Station_clean$from[i],Station_clean$clean_na
 
 ```
 
-# Exploratory Analyses
+# Exploratory Data
 
-#### Correlation Identification
-```{r eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
-DataExplorer::introduce(df)
-DataExplorer::plot_intro(df)
-DataExplorer::plot_density(df)
-DataExplorer::plot_bar(df)
-DataExplorer::plot_histogram(df)
-```
-
-Additionally, we've included a correlation table to show how the variables we made are or are not correlated.
-
-```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height= 10}
-DataExplorer::plot_correlation(df %>% select(!line))
-```
-
-```{r eval=FALSE, include=FALSE}
+```{r}
 numericVars <- df_shp %>%
                 st_drop_geometry() %>%
                 na.omit() %>%
@@ -263,13 +248,13 @@ ggcorrplot(
 
 ## Categorical
 
-```{r echo=FALSE, message=FALSE, warning=FALSE}
+```{r}
 Categorical <- df_shp %>%
                 st_drop_geometry() %>%
                 na.omit() %>%
                 select(where(is.character),delay_minutes)
 
-#colnames(Categorical)
+colnames(Categorical)
 
 cat <- Categorical %>%
         select(colnames(Categorical)[2], delay_minutes) %>%
@@ -289,7 +274,7 @@ cat <- bind_rows(cat,t)
 
 ```{r}
 ggplot(data = cat %>%
-         filter(!Variable %in% c("from","to","train_id","type","line")),
+         filter(!Variable %in% c("from","to","train_id","type")),
        aes(x = Value,  y = delay_minutes)) +
   geom_bar(stat = "summary", fun.y = "mean") +
   scale_y_continuous(labels = comma) +
@@ -302,39 +287,8 @@ ggplot(data = cat %>%
 #ggsave("Categorical_Variables.jpg", width = 16, height = 9, unit = "in", dpi = 300)
 ```
 
-### Delays By Time of Day
-```{r message=FALSE, warning=FALSE}
-df %>%
-  mutate(delay_grtr5min = case_when(delay_minutes >= 5 ~ 1,
-                                    delay_minutes < 5 ~ 0)) %>%
-  filter(delay_grtr5min == 1) %>%
-  group_by(interval60, scheduled_TOD, LINE_NAME) %>%
-    tally() %>%
-  summarize(avg_trainsLate = mean(n)) %>%
-  ggplot() +
-    geom_histogram(aes(x = avg_trainsLate), binwidth = 1) +
-    facet_wrap(~factor(scheduled_TOD,levels=c("AM Rush", "Mid-Day", "PM Rush", "Overnight"))) +
-  plotTheme() +
-  labs(title = "Delays by Time of Day")
-```
+## station delays
 
-```{r}
-df %>%
-  mutate(delay_grtr5min = case_when(delay_minutes >= 5 ~ 1,
-                                    delay_minutes < 5 ~ 0)) %>%
-  filter(delay_grtr5min == 1) %>%
-  group_by(interval60) %>%
-  ggplot() +
-    geom_freqpoly(aes(hour(scheduled_datetime), color = LINE_NAME), size = 1, binwidth = 1) +
-  plotTheme() +
-  labs(title = "Average Delays by Line",
-       x = "Hour")
-```
-
-
-
-
-## Station delays
 ```{r fig.height=12}
 ggplot(data = cat %>%
          filter(Variable %in% c("from","to")) %>%
@@ -365,34 +319,34 @@ A <- length(unique(A$Bin_mean_delay))
 
 cc <- scales::seq_gradient_pal("Red","Grey")(seq(0,1,length.out=A))
 
-#df_shp %>%
-#  st_drop_geometry() %>%
-#  group_by(from) %>%
-#  summarize(mean_delay = mean(delay_minutes)) %>%
-#  mutate(Bin_mean_delay = cut_interval(mean_delay, n = 20, dig.lab = 10),
-#         Bin_mean_delay = str_remove(Bin_mean_delay,"."),
-#         Bin_mean_delay = str_sub(Bin_mean_delay,1,nchar(Bin_mean_delay)-1)) %>%
-#  separate(Bin_mean_delay, into = c("Start","End"), sep = ",") %>%
-#  mutate(Start = round(as.numeric(Start),3),
-#         End = round(as.numeric(End),3)) %>%
-#  arrange(Start) %>%
-#  mutate(Start = as.character(Start),
-#         End = as.character(End),
-#         Interval = paste0(Start," - ",End),
-#         Interval = forcats::as_factor(Interval)) %>%
-#  rename(STATION_ID = from) %>%
-#  left_join(NJtransitstations, by = "STATION_ID") %>%
-#  st_as_sf() %>%
-#  ggplot() +
-#  geom_sf(data = NJTransitLines) +
-#  geom_sf(aes(color = Interval)) +
-#  geom_sf(data = NJshp, fill = "transparent") +
-#  scale_color_manual(values = cc) +
-#  labs(title = "Delay in minutes going from a Station") +
-#  mapTheme()
+df_shp %>%
+  st_drop_geometry() %>%
+  group_by(from) %>%
+  summarize(mean_delay = mean(delay_minutes)) %>%
+  mutate(Bin_mean_delay = cut_interval(mean_delay, n = 20, dig.lab = 10),
+         Bin_mean_delay = str_remove(Bin_mean_delay,"."),
+         Bin_mean_delay = str_sub(Bin_mean_delay,1,nchar(Bin_mean_delay)-1)) %>%
+  separate(Bin_mean_delay, into = c("Start","End"), sep = ",") %>%
+  mutate(Start = as.numeric(Start)) %>%
+  arrange(Start) %>%
+  mutate(Start = as.character(Start),
+         Interval = paste0(Start," - ",End),
+         Interval = forcats::as_factor(Interval)) %>%
+  rename(STATION_ID = from) %>%
+  left_join(NJtransitstations, by = "STATION_ID") %>%
+  st_as_sf() %>%
+  ggplot() +
+  geom_sf(data = NJTransitLines) +
+  geom_sf(aes(color = Interval)) +
+  geom_sf(data = NJshp, fill = "transparent") +
+  scale_color_manual(values = cc) +
+  labs(title = "Delay in minutes going from a Station") +
+  mapTheme()
+
+#ggsave("Delay_from_station.jpg", width = 16, height = 9, unit = "in", dpi = 300)
 
 
-B <- df_shp %>%
+df_shp %>%
   st_drop_geometry() %>%
   group_by(from) %>%
   summarize(mean_delay = mean(delay_minutes)) %>%
@@ -403,14 +357,17 @@ B <- df_shp %>%
   geom_sf(data = NJTransitLines) +
   geom_sf(aes(color = mean_delay)) +
   geom_sf(data = NJshp, fill = "transparent") +
-  labs(title = "From a Station") +
+  labs(title = "Delay in minutes going from a Station") +
   scale_color_gradient(low = "green",
                        high = "red") +
-  theme(legend.position = "bottom") +
   mapTheme()
 
+ggsave("Delay_from_station.jpg", width = 9*.5, height = 16*.5, unit = "in", dpi = 300)
+```
 
-#ggsave("Delay_from_station.jpg", width = 16, height = 9, unit = "in", dpi = 300)
+## Line delays by geography
+
+```{r}
 
 A <- df_shp %>%
   st_drop_geometry() %>%
@@ -422,34 +379,34 @@ A <- length(unique(A$Bin_mean_delay))
 
 cc <- scales::seq_gradient_pal("Red","Grey")(seq(0,1,length.out=A))
 
-#df_shp %>%
-#  st_drop_geometry() %>%
-#  group_by(to) %>%
-#  summarize(mean_delay = mean(delay_minutes)) %>%
-#  mutate(Bin_mean_delay = cut_interval(mean_delay, n = 20, dig.lab = 10),
-#         Bin_mean_delay = str_remove(Bin_mean_delay,"."),
-#         Bin_mean_delay = str_sub(Bin_mean_delay,1,nchar(Bin_mean_delay)-1)) %>%
-#  separate(Bin_mean_delay, into = c("Start","End"), sep = ",") %>%
-#  mutate(Start = as.numeric(Start)) %>%
-#  arrange(Start) %>%
-#  mutate(Start = as.character(Start),
-#         Interval = paste0(Start," - ",End),
-#         Interval = forcats::as_factor(Interval)) %>%
-#  rename(STATION_ID = to) %>%
-#  left_join(NJtransitstations, by = "STATION_ID") %>%
-#  st_as_sf() %>%
-#  ggplot() +
-#  geom_sf(data = NJTransitLines) +
-#  geom_sf(aes(color = Interval)) +
-#  geom_sf(data = NJshp, fill = "transparent") +
-#  scale_color_manual(values = cc) +
-#  labs(title = "Delay in minutes going to a Station") +
-#  mapTheme()
+df_shp %>%
+  st_drop_geometry() %>%
+  group_by(to) %>%
+  summarize(mean_delay = mean(delay_minutes)) %>%
+  mutate(Bin_mean_delay = cut_interval(mean_delay, n = 20, dig.lab = 10),
+         Bin_mean_delay = str_remove(Bin_mean_delay,"."),
+         Bin_mean_delay = str_sub(Bin_mean_delay,1,nchar(Bin_mean_delay)-1)) %>%
+  separate(Bin_mean_delay, into = c("Start","End"), sep = ",") %>%
+  mutate(Start = as.numeric(Start)) %>%
+  arrange(Start) %>%
+  mutate(Start = as.character(Start),
+         Interval = paste0(Start," - ",End),
+         Interval = forcats::as_factor(Interval)) %>%
+  rename(STATION_ID = to) %>%
+  left_join(NJtransitstations, by = "STATION_ID") %>%
+  st_as_sf() %>%
+  ggplot() +
+  geom_sf(data = NJTransitLines) +
+  geom_sf(aes(color = Interval)) +
+  geom_sf(data = NJshp, fill = "transparent") +
+  scale_color_manual(values = cc) +
+  labs(title = "Delay in minutes going to a Station") +
+  mapTheme()
 
 #ggsave("Delay_to_station.jpg", width = 16*.5, height = 9*.5, unit = "in", dpi = 300)
 
 
-C <- df_shp %>%
+df_shp %>%
   st_drop_geometry() %>%
   group_by(to) %>%
   summarize(mean_delay = mean(delay_minutes)) %>%
@@ -460,18 +417,29 @@ C <- df_shp %>%
   geom_sf(data = NJTransitLines) +
   geom_sf(aes(color = mean_delay)) +
   geom_sf(data = NJshp, fill = "transparent") +
-  labs(title = "To a Station") +
+  labs(title = "Delay in minutes going to a Station") +
   scale_color_gradient(low = "green",
                        high = "red") +
-  theme(legend.position = "bottom") +
   mapTheme()
-  
 
 #ggsave("Delay_to_station.jpg", width = 9*.5, height = 16*.5, unit = "in", dpi = 300)
-
-grid.arrange(C,B, ncol = 2, nrow=1,
-             top = textGrob("Average Delay To and From Station", gp=gpar(fontsize=20,font=3)))
 ```
+## Train delays
+
+```{r eval=FALSE, fig.height=12, include=FALSE}
+ggplot(data = cat %>%
+         filter(Variable %in% c("train_id")),
+       aes(x = Value,  y = delay_minutes)) +
+  geom_bar(position = "dodge2", stat = "summary", fun.y = "mean") +
+  scale_y_continuous(labels = comma) +
+  plotTheme() +
+  labs(x = "Categorical Variables",
+       y = "Delay in Minutes",
+       title = "Cateogrical Variables Average Delay") +
+  coord_flip()
+
+```
+
 
 ## Delays over Time
 
@@ -505,7 +473,7 @@ animate(
   na.omit() %>%
   ggplot(aes(x = day, y = mean_delay, color = LINE_NAME)) +
   geom_line(se = FALSE) +
-#  geom_vline(xintercept = covid_day, linetype = "dashed") +
+  geom_vline(xintercept = covid_day, linetype = "dashed") +
   labs(title = "Average Delay Over Time",
        subtitle = "By Line",
        y = "Average Delay",
@@ -548,33 +516,37 @@ df_shp %>%
   labs(title = "Average Delay Over Time",
        subtitle = "By Stop Sequence",
        y = "Average Delay",
-       x = "Date") +
+       x = "Day") +
   plotTheme()
 
 #ggsave("smooth_Stop_delay.jpg", width = 16, height = 9, unit = "in", dpi = 300)
 ```
 
 
-```{r eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+factor_order <- c(1:26)
 
-df_shp %>%
+animate(
+  df_shp %>%
   st_drop_geometry() %>%
   group_by(day,stop_sequence) %>%
   summarize(mean_delay = mean(delay_minutes)) %>%
   mutate(stop_sequence = factor(stop_sequence, levels = factor_order)) %>% 
   ggplot(aes(x = day, y = mean_delay, color = stop_sequence)) +
   geom_smooth(se = FALSE) +
-#  geom_vline(xintercept = covid_day, linetype = "dashed") +
+  geom_vline(xintercept = covid_day, linetype = "dashed") +
   labs(title = "Average Delay Over Time",
-       subtitle = "By Line",
+       subtitle = "By Stop Sequence",
        y = "Average Delay",
-       x = "Date") +
+       x = "Day") +
   plotTheme() +
   facet_wrap(~stop_sequence) +
   theme(legend.position = "hide",
-        axis.ticks.x = element_blank())
+        axis.ticks.x = element_blank()) +
+  transition_reveal(day), 
+  width = 800, height = 800)
 
-#anim_save(filename = "stop_sequence.gif",animation = last_animation())
+anim_save(filename = "stop_sequence.gif",animation = last_animation())
 ```
 
 ```{r}
@@ -603,43 +575,33 @@ set.seed(111)
 #Valid <- lmdf[-trainIndex,]
 
 
-remove <- c("ID","from_id","to_id","train_id","type","interval60","line","date","scheduled_datetime",
-            "actual_datetime","Actual_time","accumulated_delay", "quintile_delay", "AM_PM", "status")
+
+remove <- c("from_id","to_id","type","interval60","line","date","scheduled_datetime","actual_datetime","train_id")
 
 Sample <- df %>%
+          select(!remove)
+Sample <- Sample[sample(nrow(Sample), size = nrow(Sample) *.5), ]
+
+Test <- df %>%
           select(!remove) %>%
-          # Filter out Princeton Dinky because it didn't run during parts of pandemic
-          filter(LINE_NAME != "Princeton Dinky")
-
-Train <- filter(Sample, (week >= 1) & (week <= 15))
-
-Test <- filter(Sample, (week >= 16))
-
-# Test <- df %>%
-#           select(!remove) %>%
-#           filter(!ID %in% Sample$ID) %>%
-#           filter(from %in% Sample$from) %>%
-#           filter(to %in% Sample$to) %>%
-#           filter(LINE_NAME %in% Sample$LINE_NAME) %>%
-#           na.omit() 
+          filter(!ID %in% Sample$ID) %>%
+          filter(from %in% Sample$from) %>%
+          filter(to %in% Sample$to) %>%
+          filter(LINE_NAME %in% Sample$LINE_NAME) %>%
+          na.omit() 
 
 #to test use slice()
-# 
-# Train <- Train %>%
-#             select(!ID)
-# 
-# Test <- Test %>%
-#           select(!ID)
 
-# Garbage Collector!!
+Sample <- Sample %>%
+            select(!ID)
+
+Test <- Test %>%
+          select(!ID)
 gc()
-```
 
+#reg.training <- fastLm(delay_minutes ~ ., data = Sample)
 
-```{r runmodels}
-#reg.training <- fastLm(delay_minutes ~ ., data = Train)
-
-reg.training <- lm(delay_minutes ~ ., data = Train)
+reg.training <- lm(delay_minutes ~ ., data = Sample)
 
 #summary(reg.training) Our R squared is 1. Definitely an overfit model. We'll see how well it predicts though. 
 
@@ -669,7 +631,7 @@ fitControl <- trainControl(method = "cv", number = 5)
 set.seed(825)
 
 reg.cv <- 
-  train(delay_minutes ~ ., data = Train, 
+  train(delay_minutes ~ ., data = Sample, 
      method = "lm", trControl = fitControl, na.action = na.pass)
 
 reg.cv
@@ -680,7 +642,6 @@ reg.cv
 ```{r}
 
 Test %>%
-  na.omit() %>%
   group_by(LINE_NAME) %>%
   summarize(Mean_Delay = mean(Delay.Predict)) %>%
   left_join(NJTransitLines, by = "LINE_NAME") %>%
@@ -699,7 +660,7 @@ ggsave("Modeled_Delay_Line.jpg", width = 9*.5, height = 16*.5, unit = "in", dpi 
 
 ## Average Predicted Delay From Station 
 ```{r}
-B <- Test %>%
+Test %>%
   group_by(from) %>%
   summarize(Mean_Delay = mean(Delay.Predict)) %>%
   rename(STATION_ID = from) %>%
@@ -710,17 +671,21 @@ B <- Test %>%
   geom_sf(data = NJTransitLines) +
   geom_sf(aes(color = Mean_Delay)) +
   geom_sf(data = NJshp, fill = "transparent") +
-  labs(title = "From",
-       x = "Predicted Mean Delay") +
+  labs(title = "from station average of predicted delay") +
   scale_color_gradient(low = "green",
                        high = "red") +
-  theme(legend.position = "bottom") +
   mapTheme()
 
 ggsave("Modeled_Delay_from_station.jpg", width = 9*.5, height = 16*.5, unit = "in", dpi = 300)
+```
 
 
-C <- Test %>%
+
+## Average Predicated Delay To Station
+
+```{r}
+
+Test %>%
   group_by(to) %>%
   summarize(Mean_Delay = mean(Delay.Predict)) %>%
   rename(STATION_ID = to) %>%
@@ -731,24 +696,19 @@ C <- Test %>%
   geom_sf(data = NJTransitLines) +
   geom_sf(aes(color = Mean_Delay)) +
   geom_sf(data = NJshp, fill = "transparent") +
-  labs(title = "To",
-       x = "Predicted Mean Delay") +
+  labs(title = "to station average of predicted delay") +
   scale_color_gradient(low = "green",
                        high = "red") +
-  theme(legend.position = "bottom") +
   mapTheme()
 
-
 ggsave("Modeled_Delay_to_station.jpg", width = 9*.5, height = 16*.5, unit = "in", dpi = 300)
-
-grid.arrange(C,B, ncol = 2, nrow=1,
-             top = textGrob("Average of predicted Delay To and From Station", gp=gpar(fontsize=20,font=3)))
 ```
+
 
 # Appendix
 
 
-```{r eval=FALSE, include=FALSE}
+```{r}
 df_clean %>%
   group_by(train_id, Year) %>%
   summarize(mean_delay = mean(delay_minutes),
@@ -765,7 +725,7 @@ NA_weather_dates <- unique(f$interval60)
 
 ```
 
-```{r eval=FALSE, include=FALSE}
+```{r}
 Amtrak_stops <- bind_rows(
                   df %>%
                     filter(type == "Amtrak") %>%
@@ -852,7 +812,7 @@ combined <- rbind_tigris(
 ```
 
 
-```{r cleaning_Stations, eval=FALSE, include=FALSE}
+```{r cleaning_Stations}
 
 NJtransitstations %>%
   filter(grepl("Anderson", STATION_ID))
