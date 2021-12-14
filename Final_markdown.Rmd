@@ -403,7 +403,7 @@ df_shp %>%
   labs(title = "Delay in minutes going to a Station") +
   mapTheme()
 
-ggsave("Delay_to_station.jpg", width = 16*.5, height = 9*.5, unit = "in", dpi = 300)
+#ggsave("Delay_to_station.jpg", width = 16*.5, height = 9*.5, unit = "in", dpi = 300)
 
 
 df_shp %>%
@@ -422,7 +422,7 @@ df_shp %>%
                        high = "red") +
   mapTheme()
 
-ggsave("Delay_to_station.jpg", width = 9*.5, height = 16*.5, unit = "in", dpi = 300)
+#ggsave("Delay_to_station.jpg", width = 9*.5, height = 16*.5, unit = "in", dpi = 300)
 ```
 ## Train delays
 
@@ -524,6 +524,8 @@ df_shp %>%
 
 
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
+factor_order <- c(1:26)
+
 animate(
   df_shp %>%
   st_drop_geometry() %>%
