@@ -11,8 +11,6 @@ output:
     code_folding: hide
 ---
 
-Link to canva presentation: https://www.canva.com/design/DAEx6RRkde0/share/preview?token=u2xD2CeqLfZqDMSWH58_Dw&role=EDITOR&utm_content=DAEx6RRkde0&utm_campaign=designshare&utm_medium=link&utm_source=sharebutton 
-
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -65,7 +63,7 @@ for (i in 2:nrow(as_tibble(import))) {
 
 
 #### Train Routes
-```{r trainRoutes message=FALSE, warning=FALSE, include=FALSE}
+```{r trainRoutes, message=FALSE, warning=FALSE, include=FALSE}
 # There's no complete set of NJ transit lines anymore
 
 NJTransitLines <- bind_rows(st_read("https://opendata.arcgis.com/datasets/fc24118ac4a0445da5e09f7692075757_13.geojson"),
