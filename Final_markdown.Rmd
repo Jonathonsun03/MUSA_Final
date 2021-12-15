@@ -15,7 +15,7 @@ output:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
-pacman::p_load(tidyverse, vroom, DataExplorer, lubridate, sf, tidycensus, tigris, hms, riem, slider, scales, caret,RcppEigen, ckanr, FNN, ggcorplot, grid, gridExtra, gtools, httr, kableExtra, modelsummary,tidycensus, spdep, stargazer, tmap, viridis, zipcodeR, DT, dplyr, scales, ggthemes, plotly, gganimate)
+pacman::p_load(tidyverse, vroom, DataExplorer, lubridate, sf, tidycensus, tigris, hms, riem, slider, scales, caret,RcppEigen, ckanr, FNN, ggcorplot, grid, gridExtra, gtools, httr, kableExtra, modelsummary,tidycensus, spdep, stargazer, tmap, viridis, zipcodeR, DT, dplyr, scales, ggthemes, plotly, gganimate, stringr)
 
 
 library(ggcorrplot)
@@ -227,10 +227,40 @@ for(i in 1:nrow(Station_clean)) {
 df_shp$from <- str_replace(df_shp$from, Station_clean$from[i],Station_clean$clean_name[i])
 df_shp$to <- str_replace(df_shp$to, Station_clean$from[i],Station_clean$clean_name[i])
 }
+```
+
+```{r message=FALSE, warning=FALSE}
+remove <- c("ID","from_id","to_id","train_id","type","interval60","line","date","scheduled_datetime",
+            "actual_datetime","Actual_time","accumulated_delay", "quintile_delay", "AM_PM", "status")
+
+
+ColNamesClean <- as.tibble(colnames(df %>%
+                                      select(!remove))) %>%
+                    rename(Name = value) %>%
+                    mutate(Name = str_to_title(Name),
+                           Name = str_replace(Name,"_"," "))
+datatable(df_shp %>%
+       st_drop_geometry() %>%
+       select(!remove) %>%
+       sample_n(500),
+     class = 'cell-border stripe',
+     rownames = FALSE,
+     colnames = ColNamesClean$Name,
+     caption = "Table 1: Table view of the data",
+     filter = 'bottom',
+     extensions = 'FixedColumns',
+     options = list(dom = 't',
+                    scrollX = TRUE,
+                    fixedColumns = TRUE,
+                    pageLength = 10))
+
 
 ```
 
 This model uses data from Kaggle on Amtrak and NJTransit, shapefile data from ESRI, and weather data from `riem`. For the data from kaggle we used data specifically from NJtransit. The NJtransit is the public transit system for the state of New Jersey and includes buses, trains, and light rail; however, for this study we are only finding delays for trains. The NJtransit has `r length(unique(df$line))` different train lines and `r length(unique(df$from))` stations. The dataset that we have selected comprises of `r nrow(df)` and `r length(colnames(df))` variables. From this dataset, we engineered a number of other variables such as station lag, the delay at the previous station, and the accumulated delay at each stop sequence. In addition to the train data, we also included data on the weather, at the time of the train departing. Weather data was pulled from the nearest station which was Newark International Airport.
+
+
+Table 1 includes a sample of 500 rows to view the data.
 
 # Exploratory Analyses
 To conceptualize what variables to consider in the model, we explored the data through plot correlations, categorical data, delays by time, delays by station, geography and delays over time. 
@@ -281,11 +311,12 @@ ggplot(data = cat %>%
 #ggsave("Categorical_Variables.jpg", width = 16, height = 9, unit = "in", dpi = 300)
 ```
 
-### Delays By Time of Day
+## Delays By Time: Hour of Day
 
-Next we plotted the frequency of delays of more than 5 minutes by time of day. The spread of the amount of late trains is included in the plot below.
-```{r message=FALSE, warning=FALSE}
-df %>%
+Next we wanted to understand the relationship of lateness over the course of 24 hours. First we categorized the scheduled trains by AM Rush, Mid-Day, PM Rush, and Overnight, and then counted the frequencies of how many trains were late during each of these periods. Next the overall line delays in the dataset were counted and plotted against the hour in the day. This shows at what time of day how many trains were late. 
+
+```{r message=FALSE, warning=FALSE, fig.width=10}
+A <- df %>%
   mutate(delay_grtr5min = case_when(delay_minutes >= 5 ~ 1,
                                     delay_minutes < 5 ~ 0)) %>%
   filter(delay_grtr5min == 1) %>%
@@ -296,11 +327,11 @@ df %>%
     geom_histogram(aes(x = avg_trainsLate), binwidth = 1) +
     facet_wrap(~factor(scheduled_TOD,levels=c("AM Rush", "Mid-Day", "PM Rush", "Overnight"))) +
   plotTheme() +
-  labs(title = "Delays by Time of Day")
-```
+  labs(title = "Delays by Time of Day",
+       x = "Number of Trains Late",
+       caption = "Figure X")
 
-```{r}
-df %>%
+B <- df %>%
   mutate(delay_grtr5min = case_when(delay_minutes >= 5 ~ 1,
                                     delay_minutes < 5 ~ 0)) %>%
   filter(delay_grtr5min == 1) %>%
@@ -308,12 +339,128 @@ df %>%
   ggplot() +
     geom_freqpoly(aes(hour(scheduled_datetime), color = LINE_NAME), size = 1, binwidth = 1) +
   plotTheme() +
-  labs(title = "Average Delays by Line",
-       x = "Hour")
+  labs(title = "Count of Lateness by Line by Time",
+       x = "Scheduled Hour of Day",
+       caption = "Figure X")
+
+grid.arrange(A,B, ncol = 2, nrow=1, widths = c(1.5,2),
+             top = textGrob("Plots showing Usage Over Time", gp=gpar(fontsize=20,font=3)))
 ```
+
+## Delays over Time: Days of the Year
+
+Next we analyzed day within the time of the year, rather than hours within a day. Figure X shows the amount of delay over the course of a year by day. The dotted line in the figure indicates the first day covid-19 was detected in the United States. Based on the data, it is difficult to determine the role that covid-19 had on average delay times. To better understand the role of covid-19, data from year prior to covid will need to be used in a t-test. 
+
+### By Line Name
+
+```{r message=FALSE, warning=FALSE}
+#df %>%
+#  filter(date == as.numeric(ymd(c("2020-01-20"))))
+
+covid_day <- 691 # for full dataset
+covid_day <- 20
+
+animate(
+  df_shp %>%
+  st_drop_geometry() %>%
+  group_by(day,LINE_NAME) %>%
+  summarize(mean_delay = mean(delay_minutes)) %>%
+  na.omit() %>%
+  ggplot(aes(x = day, y = mean_delay, color = LINE_NAME)) +
+  geom_line(se = FALSE) +
+  geom_vline(xintercept = covid_day, linetype = "dashed") +
+  labs(title = "Average Delay Over Time",
+       subtitle = "By Line",
+       y = "Average Delay",
+       x = "Day") +
+  plotTheme() +
+  theme(legend.position = "hide") +
+  facet_wrap(~LINE_NAME)+
+  transition_reveal(day), 
+  width = 800, height = 800)
+
+#anim_save(filename = "LINE_NAME.gif",animation = last_animation())
+```
+
+In addition to the animated plots, Figure X also includes average delays that has been smoothed using `geom_smooth` rather than `geom_line`. `geom_smooth` estimates a best fit line rather than directly plotting and following every single point.
+
+```{r message=FALSE, warning=FALSE}
+ggplotly(df_shp %>%
+  st_drop_geometry() %>%
+  group_by(date,LINE_NAME) %>%
+  summarize(mean_delay = mean(delay_minutes)) %>%
+  ggplot(aes(x = date, y = mean_delay, color = LINE_NAME)) +
+  geom_smooth(se = FALSE) +
+  geom_vline(xintercept = as.numeric(ymd(c("2020-01-20"))), linetype = "dashed") +
+  labs(title = "Average Delay by Day of Year",
+       subtitle = "By Line",
+       y = "Average Delay",
+       x = "Date",
+       caption = "Figure X") +
+  plotTheme())
+
+#ggsave("smooth_line_delay.jpg", width = 16, height = 9, unit = "in", dpi = 300)
+```
+
+
+### By Stop Sequence
+
+Finally, figure X, includes an estimated line for delays by stop sequence. Stop sequence indicates where on the line this train has stopped; for example, the North East Corridor may have multiple stops and those stops are organized by values 1, 2, 3, and so forth. 
+
+
+```{r message=FALSE, warning=FALSE}
+factor_order <- c(1:26)
+
+animate(df_shp %>%
+  st_drop_geometry() %>%
+  group_by(day,stop_sequence) %>%
+  summarize(mean_delay = mean(delay_minutes)) %>%
+  mutate(stop_sequence = factor(stop_sequence, levels = factor_order)) %>% 
+  ggplot(aes(x = day, y = mean_delay, color = stop_sequence)) +
+  geom_line(se = FALSE) +
+  geom_vline(xintercept = covid_day, linetype = "dashed") +
+  labs(title = "Average Delay by Day of Year",
+       subtitle = "By Line",
+       y = "Average Delay",
+       x = "Day") +
+  plotTheme() +
+  facet_wrap(~stop_sequence) +
+  theme(legend.position = "hide",
+        axis.ticks.x = element_blank()) +
+  transition_reveal(day), 
+  width = 800, height = 800)
+
+#anim_save(filename = "stop_sequence.gif",animation = last_animation())
+```
+
+Similarly to the analysis by Line Name, figure x below is a smoothed out using `geom_smooth` rather than `geom_line`
+
+```{r message=FALSE, warning=FALSE}
+ggplotly(df_shp %>%
+  st_drop_geometry() %>%
+  group_by(date,stop_sequence) %>%
+  summarize(mean_delay = mean(delay_minutes)) %>%
+  mutate(stop_sequence = factor(stop_sequence, levels = factor_order)) %>% 
+  ggplot(aes(x = date, y = mean_delay, color = stop_sequence)) +
+  geom_smooth(se = FALSE) +
+  geom_vline(xintercept = as.numeric(ymd(c("2020-01-20"))), linetype = "dashed") +
+  labs(title = "Average Delay Over Time",
+       subtitle = "By Stop Sequence",
+       y = "Average Delay",
+       x = "Date",
+       caption = "Figure X") +
+  plotTheme())
+
+#ggsave("smooth_Stop_delay.jpg", width = 16, height = 9, unit = "in", dpi = 300)
+```
+
+
 ## Station delays
-```{r fig.height=12}
-ggplot(data = cat %>%
+
+Rather then analyze delays by time of day, we also wanted to understand the role that stations had in delay times for trains. Below we included a plot that shows the average delay to and from a station. 
+
+```{r fig.height=12, message=FALSE, warning=FALSE}
+ggplotly(ggplot(data = cat %>%
          filter(Variable %in% c("from","to")) %>%
          arrange(Value) %>%
          mutate(Value = as.factor(Value)),
@@ -321,15 +468,19 @@ ggplot(data = cat %>%
   geom_bar(position = "dodge2", stat = "summary", fun.y = "mean") +
   scale_y_continuous(labels = comma) +
   plotTheme() +
-  labs(x = "Categorical Variables",
+  labs(x = "Station Names",
        y = "Delay in Minutes",
-       title = "Cateogrical Variables Average Delay") +
-  coord_flip()
+       title = "Cateogrical Variables Average Delay",
+       caption = "Figure X") +
+  theme(axis.title.x = element_blank()) +
+  coord_flip())
 
 #ggsave("Station_Delay.jpg", width = 16*1.5, height = 9*1.5, unit = "in", dpi = 300)
 ```
 
-## station delays by geography
+### Station Delays by Geography
+
+In addition to analysis on Time, this study also includes space. The maps below of the NJ transit lines show the average delow going to and from each station on the NJtransit
 
 ```{r}
 A <- df_shp %>%
@@ -450,124 +601,10 @@ grid.arrange(C,B, ncol = 2, nrow=1,
              top = textGrob("Average Delay To and From Station", gp=gpar(fontsize=20,font=3)))
 ```
 
-## Delays over Time
-
-```{r}
-df_shp %>%
-  st_drop_geometry() %>%
-  group_by(date,LINE_NAME) %>%
-  summarize(mean_delay = mean(delay_minutes)) %>%
-  ggplot(aes(x = date, y = mean_delay, color = LINE_NAME)) +
-  geom_smooth(se = FALSE) +
-  geom_vline(xintercept = as.numeric(ymd(c("2020-01-20"))), linetype = "dashed") +
-  labs(title = "Average Delay Over Time",
-       subtitle = "By Line",
-       y = "Average Delay",
-       x = "Date") +
-  plotTheme()
-
-#ggsave("smooth_line_delay.jpg", width = 16, height = 9, unit = "in", dpi = 300)
-```
-
-
-
-```{r}
-covid_day <- 691
-
-animate(
-  df_shp %>%
-  st_drop_geometry() %>%
-  group_by(day,LINE_NAME) %>%
-  summarize(mean_delay = mean(delay_minutes)) %>%
-  na.omit() %>%
-  ggplot(aes(x = day, y = mean_delay, color = LINE_NAME)) +
-  geom_line(se = FALSE) +
-#  geom_vline(xintercept = covid_day, linetype = "dashed") +
-  labs(title = "Average Delay Over Time",
-       subtitle = "By Line",
-       y = "Average Delay",
-       x = "Day") +
-  plotTheme() +
-  theme(legend.position = "hide") +
-  facet_wrap(~LINE_NAME)+
-  transition_reveal(day), 
-  width = 800, height = 800)
-
-#anim_save(filename = "LINE_NAME.gif",animation = last_animation())
-```
-
-
-
-```{r}
-df_shp %>%
-  st_drop_geometry() %>%
-  group_by(date,status) %>%
-  summarize(mean_delay = mean(delay_minutes)) %>%
-  ggplot(aes(x = date, y = mean_delay, color = status)) +
-  geom_smooth(se = FALSE) +
-  geom_vline(xintercept = as.numeric(ymd(c("2020-01-20"))), linetype = "dashed") +
-  labs(title = "Average Delay Over Time",
-       subtitle = "By Line",
-       y = "Average Delay",
-       x = "Date") +
-  plotTheme()
-
-factor_order <- c(1:26)
-
-df_shp %>%
-  st_drop_geometry() %>%
-  group_by(date,stop_sequence) %>%
-  summarize(mean_delay = mean(delay_minutes)) %>%
-  mutate(stop_sequence = factor(stop_sequence, levels = factor_order)) %>% 
-  ggplot(aes(x = date, y = mean_delay, color = stop_sequence)) +
-  geom_smooth(se = FALSE) +
-  geom_vline(xintercept = as.numeric(ymd(c("2020-01-20"))), linetype = "dashed") +
-  labs(title = "Average Delay Over Time",
-       subtitle = "By Stop Sequence",
-       y = "Average Delay",
-       x = "Date") +
-  plotTheme()
-
-#ggsave("smooth_Stop_delay.jpg", width = 16, height = 9, unit = "in", dpi = 300)
-```
-
-
-```{r eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
-
-df_shp %>%
-  st_drop_geometry() %>%
-  group_by(day,stop_sequence) %>%
-  summarize(mean_delay = mean(delay_minutes)) %>%
-  mutate(stop_sequence = factor(stop_sequence, levels = factor_order)) %>% 
-  ggplot(aes(x = day, y = mean_delay, color = stop_sequence)) +
-  geom_smooth(se = FALSE) +
-#  geom_vline(xintercept = covid_day, linetype = "dashed") +
-  labs(title = "Average Delay Over Time",
-       subtitle = "By Line",
-       y = "Average Delay",
-       x = "Date") +
-  plotTheme() +
-  facet_wrap(~stop_sequence) +
-  theme(legend.position = "hide",
-        axis.ticks.x = element_blank())
-
-#anim_save(filename = "stop_sequence.gif",animation = last_animation())
-```
-
-```{r}
-f <- df_shp %>%
-  st_drop_geometry() %>%
-  group_by(date, LINE_NAME) %>%
-  summarize(mean_delay = mean(delay_minutes)) %>%
-  ggplot(aes(x = LINE_NAME, y = mean_delay)) +
-  geom_boxplot()
-
-ggplotly(f)
-```
 
 # Model building
 
-```{r}
+```{r message=FALSE, warning=FALSE, include=FALSE}
 set.seed(111)
 
 #sample_size = round(nrow(df_shp %>%
@@ -614,7 +651,7 @@ gc()
 
 After exploring the data, we built a linear model that includes `r colnames(Sample)`. This model in comparison to a model that includes all the variables is more advantageous because it avoids the problem of being overfit. When a model was built that included all the variables, the model had an R^2 value of 1 and 0 Mean Squared Error (MSE). The current model includes an MSE not equal to 0 and a R^2 value less than 1, which means the model is not overfit, and can predict on new data. 
 
-```{r runmodels}
+```{r runmodels, message=FALSE, warning=FALSE, results='asis'}
 #reg.training <- fastLm(delay_minutes ~ ., data = Train)
 
 reg.training <- lm(delay_minutes ~ ., data = Train)
@@ -631,19 +668,22 @@ Test <- bind_cols(Test, as.tibble(f)) %>%
 
 
 mae <- mean(Test$Delay.AbsError, na.rm=TRUE)
-print(mae)
+#print(mae)
 mape <- mean(Test$Delay.APE, na.rm=TRUE)
-print(mape)
+#print(mape)
 
 
 # Table of regression outputs
-modelsummary(reg.training, output = "kableExtra", stars = TRUE, gof_omit = 'IC|Log|AIC|BIC')
+#modelsummary(reg.training, output = "kableExtra", stars = TRUE, gof_omit = 'IC|Log|AIC|BIC')
+stargazer(reg.training, type = 'html')
 ```
+
+Based on the linear regression we found the Mean Average Error (MAE) to be `r print(mae)` and the Mean Average Percent Error (MAPE) to be `r print(mape)`.
 
 # Cross Validation
  To ensure that our model works well, we cross-validated the data which compares the estimated delay to the actual delay. 
  
-```{r Cross_Validation}
+```{r Cross_Validation, message=FALSE, warning=FALSE}
 fitControl <- trainControl(method = "cv", number = 5)
 set.seed(825)
 
@@ -654,7 +694,12 @@ reg.cv <-
 reg.cv
 ```
 
+
+# Average Predictions
+
 ## Average Predicted Delay by Train Route
+
+First we wanted to visualize the average predicted delay times by geography. Figure X includes the predicted delay by line. Similar to Figure X, the predicted delays are very similarly spread out geographically.
 
 ```{r}
 
@@ -668,7 +713,8 @@ Test %>%
   geom_sf(aes(color = Mean_Delay,
               linetype = LINE_NAME)) +
   geom_sf(data = NJshp, fill = "transparent") +
-  labs(title = "Estimated Delay by Line") +
+  labs(title = "Estimated Delay by Line",
+       caption = "Figure X") +
   scale_color_gradient(low = "green",
                        high = "red") +
   mapTheme()
@@ -676,7 +722,10 @@ Test %>%
 ggsave("Modeled_Delay_Line.jpg", width = 9*.5, height = 16*.5, unit = "in", dpi = 300)
 ```
 
-## Average Predicted Delay From Station 
+## Predicted Delay To and From Station 
+
+Additionally, we've included the predicted delay TO and From each station by geographic location.
+
 ```{r}
 B <- Test %>%
   group_by(from) %>%
@@ -721,6 +770,81 @@ C <- Test %>%
 ggsave("Modeled_Delay_to_station.jpg", width = 9*.5, height = 16*.5, unit = "in", dpi = 300)
 
 grid.arrange(C,B, ncol = 2, nrow=1,
+             top = textGrob("Average Predicted Delay To and From Station", gp=gpar(fontsize=20,font=3)))
+```
+
+# Average Errors in Predictions
+
+Although the model accounts for must error, we wanted to check how the model accounts for 
+
+## Average Errors in Predicted Delay by Train Route
+
+
+```{r}
+
+Test %>%
+  na.omit() %>%
+  group_by(LINE_NAME) %>%
+  summarize(Mean_AbsError = mean(Delay.AbsError)) %>%
+  left_join(NJTransitLines, by = "LINE_NAME") %>%
+  st_as_sf() %>%
+  ggplot() +
+  geom_sf(aes(color = Mean_AbsError,
+              linetype = LINE_NAME)) +
+  geom_sf(data = NJshp, fill = "transparent") +
+  labs(title = "Estimated Delay by Line") +
+  scale_color_gradient(low = "green",
+                       high = "red") +
+  mapTheme()
+
+ggsave("Modeled_Delay_Line.jpg", width = 9*.5, height = 16*.5, unit = "in", dpi = 300)
+```
+
+## Average Errors in Predicted Delay To and From Station 
+```{r}
+B <- Test %>%
+  group_by(from) %>%
+  summarize(Mean_AbsError = mean(Delay.AbsError)) %>%
+  rename(STATION_ID = from) %>%
+  left_join(NJtransitstations %>%
+              select(STATION_ID,LATITUDE,LONGITUDE,geometry), by = "STATION_ID") %>%
+  st_as_sf() %>%
+  ggplot() +
+  geom_sf(data = NJTransitLines) +
+  geom_sf(aes(color = Mean_AbsError)) +
+  geom_sf(data = NJshp, fill = "transparent") +
+  labs(title = "From",
+       x = "Predicted Mean Delay") +
+  scale_color_gradient(low = "green",
+                       high = "red") +
+  theme(legend.position = "bottom") +
+  mapTheme()
+
+ggsave("Modeled_Delay_from_station.jpg", width = 9*.5, height = 16*.5, unit = "in", dpi = 300)
+
+
+C <- Test %>%
+  group_by(to) %>%
+  summarize(Mean_AbsError = mean(Delay.AbsError)) %>%
+  rename(STATION_ID = to) %>%
+  left_join(NJtransitstations %>%
+              select(STATION_ID,LATITUDE,LONGITUDE,geometry), by = "STATION_ID") %>%
+  st_as_sf() %>%
+  ggplot() +
+  geom_sf(data = NJTransitLines) +
+  geom_sf(aes(color = Mean_AbsError)) +
+  geom_sf(data = NJshp, fill = "transparent") +
+  labs(title = "To",
+       x = "Predicted Mean Delay") +
+  scale_color_gradient(low = "green",
+                       high = "red") +
+  theme(legend.position = "bottom") +
+  mapTheme()
+
+
+ggsave("Modeled_Delay_to_station.jpg", width = 9*.5, height = 16*.5, unit = "in", dpi = 300)
+
+grid.arrange(C,B, ncol = 2, nrow=1,
              top = textGrob("Average of predicted Delay To and From Station", gp=gpar(fontsize=20,font=3)))
 ```
 
@@ -751,6 +875,36 @@ ggcorrplot(
     labs(title = "Correlation across numeric variables")
 
 
+```
+
+
+```{r}
+f <- df_shp %>%
+  st_drop_geometry() %>%
+  group_by(date, LINE_NAME) %>%
+  summarize(mean_delay = mean(delay_minutes)) %>%
+  ggplot(aes(x = LINE_NAME, y = mean_delay)) +
+  geom_boxplot()
+
+ggplotly(f)
+```
+
+
+```{r}
+#Delays by status, did it get cancelled, did it leave, etc.
+df_shp %>%
+  st_drop_geometry() %>%
+  group_by(date,status) %>%
+  summarize(mean_delay = mean(delay_minutes)) %>%
+  ggplot(aes(x = date, y = mean_delay, color = status)) +
+  geom_smooth(se = FALSE) +
+  geom_vline(xintercept = as.numeric(ymd(c("2020-01-20"))), linetype = "dashed") +
+  labs(title = "Average Delay Over Time",
+       subtitle = "By Line",
+       y = "Average Delay",
+       x = "Date",
+       caption = "Figure X") +
+  plotTheme()
 ```
 
 
