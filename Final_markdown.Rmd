@@ -37,9 +37,13 @@ palette_1_colors <- c("#00CCFF")
 # Introduction and Motivation
 Project option 4 - Forecast Metro train delays in and around NYC: An amazing new dataset has popped up on Kaggle recently that list origin/destinations delays for Amtrak and NJ Transit trains. Can you predict train delays? Consider the time frame that it would be useful to have such predictions. Predicting 5 minutes out is not going to be as useful as 2-3 hours out. Consider training on a month and predicting for the next week or two. Consider time/space (train line, county etc.) cross validation. Many app use cases here.
 
+Although train delays may seem like minor annoyances in the daily life of a commuter, there are real economic costs to train tardiness. The city of New York Office of the Controller found that major delays (5 minute delays) annually cost the city $170.2 million dollars (Stringer, 2017). Although this study was done on subway delays, the same idea can be applied to regional trains as the NJTransit has a history of delays (McGeehan, 2018). The algorithm that we have developed predicts how late trains will be based on a variety of variables, and can be utilized by agencies, researchers, and the average commuter. 
+
+For agencies and researchers, the visualizations and algorithm can be a tool to identify where trains are late. Whether that be the stations that are coming from or arriving to or if there is a particular day of the week that is most late. This analysis will provide ways to identify lateness so that it can be addressed. For the average commuter, this analysis can provide a way to determine average lateness and given a set of variables; how late will the train be? 
+
 # Data
-#### Train Times
-```{r trainTimes, message=FALSE, warning=FALSE}
+
+```{r trainTimes, message=FALSE, warning=FALSE, include=FALSE}
 import <- paste0("Amtrak/",list.files("Amtrak"))
 
 df <- data.frame()
@@ -226,43 +230,21 @@ df_shp$to <- str_replace(df_shp$to, Station_clean$from[i],Station_clean$clean_na
 
 ```
 
+This model uses data from Kaggle on Amtrak and NJTransit, shapefile data from ESRI, and weather data from `riem`. For the data from kaggle we used data specifically from NJtransit. The NJtransit is the public transit system for the state of New Jersey and includes buses, trains, and light rail; however, for this study we are only finding delays for trains. The NJtransit has `r length(unique(df$line))` different train lines and `r length(unique(df$from))` stations. The dataset that we have selected comprises of `r nrow(df)` and `r length(colnames(df))` variables. From this dataset, we engineered a number of other variables such as station lag, the delay at the previous station, and the accumulated delay at each stop sequence. In addition to the train data, we also included data on the weather, at the time of the train departing. Weather data was pulled from the nearest station which was Newark International Airport.
+
 # Exploratory Analyses
+To conceptualize what variables to consider in the model, we explored the data through plot correlations, categorical data, delays by time, delays by station, geography and delays over time. 
 
-#### Correlation Identification
-```{r eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
-DataExplorer::introduce(df)
-DataExplorer::plot_intro(df)
-DataExplorer::plot_density(df)
-DataExplorer::plot_bar(df)
-DataExplorer::plot_histogram(df)
-```
-
-Additionally, we've included a correlation table to show how the variables we made are or are not correlated.
+## Correlation Identification
+To explore the correlation in data, we used the `DataExplorer` package's `plot_correlation()` function. This package also plots correlation of categorical data by breaking categorical data into dummy variables. The plot below shows the relationship between all the variables. 
 
 ```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height= 10}
 DataExplorer::plot_correlation(df %>% select(!line))
 ```
 
-```{r eval=FALSE, include=FALSE}
-numericVars <- df_shp %>%
-                st_drop_geometry() %>%
-                na.omit() %>%
-                select(where(is.numeric)) %>%
-                select(!c("from_id","to_id","DotW","station_lag","stop_sequence","Year","week"))
-
-ggcorrplot(
-  round(cor(numericVars), 1), 
-  p.mat = cor_pmat(numericVars),
-  colors = c("#25CB10", "white", "#FA7800"),
-  type="lower",
-  insig = "blank") +  
-    labs(title = "Correlation across numeric variables")
-
-
-```
 
 ## Categorical
-
+To better understand the relationships in categorical data, in the plot below the average delay was plotted for AM/PM, line, scheduled time of day, and status of the train. The plot does indicate that There is not a large difference between trains based on AM/PM; however, there are differences in delay based on the line. 
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
 Categorical <- df_shp %>%
                 st_drop_geometry() %>%
@@ -284,10 +266,7 @@ t <- Categorical %>%
 
 cat <- bind_rows(cat,t)
 }
-```
 
-
-```{r}
 ggplot(data = cat %>%
          filter(!Variable %in% c("from","to","train_id","type","line")),
        aes(x = Value,  y = delay_minutes)) +
@@ -303,6 +282,8 @@ ggplot(data = cat %>%
 ```
 
 ### Delays By Time of Day
+
+Next we plotted the frequency of delays of more than 5 minutes by time of day. The spread of the amount of late trains is included in the plot below.
 ```{r message=FALSE, warning=FALSE}
 df %>%
   mutate(delay_grtr5min = case_when(delay_minutes >= 5 ~ 1,
@@ -330,10 +311,6 @@ df %>%
   labs(title = "Average Delays by Line",
        x = "Hour")
 ```
-
-
-
-
 ## Station delays
 ```{r fig.height=12}
 ggplot(data = cat %>%
@@ -590,7 +567,6 @@ ggplotly(f)
 
 # Model building
 
-
 ```{r}
 set.seed(111)
 
@@ -636,6 +612,8 @@ gc()
 ```
 
 
+After exploring the data, we built a linear model that includes `r colnames(Sample)`. This model in comparison to a model that includes all the variables is more advantageous because it avoids the problem of being overfit. When a model was built that included all the variables, the model had an R^2 value of 1 and 0 Mean Squared Error (MSE). The current model includes an MSE not equal to 0 and a R^2 value less than 1, which means the model is not overfit, and can predict on new data. 
+
 ```{r runmodels}
 #reg.training <- fastLm(delay_minutes ~ ., data = Train)
 
@@ -663,7 +641,8 @@ modelsummary(reg.training, output = "kableExtra", stars = TRUE, gof_omit = 'IC|L
 ```
 
 # Cross Validation
-
+ To ensure that our model works well, we cross-validated the data which compares the estimated delay to the actual delay. 
+ 
 ```{r Cross_Validation}
 fitControl <- trainControl(method = "cv", number = 5)
 set.seed(825)
@@ -747,8 +726,36 @@ grid.arrange(C,B, ncol = 2, nrow=1,
 
 # Appendix
 
+## Data exploration 
+```{r eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+DataExplorer::introduce(df)
+DataExplorer::plot_intro(df)
+DataExplorer::plot_density(df)
+DataExplorer::plot_bar(df)
+DataExplorer::plot_histogram(df)
+```
 
 ```{r eval=FALSE, include=FALSE}
+numericVars <- df_shp %>%
+                st_drop_geometry() %>%
+                na.omit() %>%
+                select(where(is.numeric)) %>%
+                select(!c("from_id","to_id","DotW","station_lag","stop_sequence","Year","week"))
+
+ggcorrplot(
+  round(cor(numericVars), 1), 
+  p.mat = cor_pmat(numericVars),
+  colors = c("#25CB10", "white", "#FA7800"),
+  type="lower",
+  insig = "blank") +  
+    labs(title = "Correlation across numeric variables")
+
+
+```
+
+
+```{r eval=FALSE, include=FALSE}
+#This doesn't work not sure why it's here in case we want to make it work at some point
 df_clean %>%
   group_by(train_id, Year) %>%
   summarize(mean_delay = mean(delay_minutes),
