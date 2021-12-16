@@ -56,6 +56,8 @@ headingImg <- paste0(currentDir, "njTransit_coverimage.jpg")
 
 # Introduction and Motivation
 
+
+
 Although train delays may seem like minor annoyances in the daily life of a commuter, there are real economic costs to train tardiness. The city of New York Office of the Controller found that major delays (5-minute delays) annually cost the city \$170.2 million dollars (Stringer, 2017). While some systems are truer to their timetables, systems like Amtrak are notoriously late (Lazo, 2019). In the case of Amtrak, a primary driver of lateness is congestion as it does not own most of the right of way it operates on. In a 2019 report detailing its on-time-performance (OTP) woes, Amtrak estimated approximately \$171 million in losses during 2018 due to 27% of their trains being late (Amtrak, 2019).
 
 OTP issues are not exclusive to Amtrak in the Northeast. Regional operators such as the NJ Transit have a history of delays (McGeehan, 2018). In this study, we build and test a linear regression to predict delay length for trains based on a variety of predictors. The hope is that this model can be utilized by agencies, researchers, and the average commuter.
@@ -678,6 +680,8 @@ After exploring the data, we built a linear model that includes **`r colnames(Sa
 
 Once we identified the suitable predictors for the model, the data were then subsetted into training and test datasets. The training set are the data on which the model is built and consists of `r max(Train$week) - min(Train$week)` weeks of the original dataset. The model is then evaluated to determine its effectiveness using the test set consisting of the `r max(Test$week) - min(Test$week)` weeks that follow the training set.   
 
+The table below contains model summary and coefficients and corresponding p-values for our model. 
+
 ```{r runmodels, message=FALSE, warning=FALSE, cache=FALSE, echo=FALSE, results='asis'}
 #reg.training <- fastLm(delay_minutes ~ ., data = Train)
 
@@ -889,6 +893,7 @@ Therefore, we recommend that NJ Transit make use of this tool for predicting whe
 
 It is clear that this is a powerful tool, not only for the transit operators, but also for the average NJ Transit rider. The ability to predict when a train will arrive with a margin of error of `r print(mae)` minutes could be highly attractive to the time-crunched transit rider. 
 
+Regarding improvements to the model, in order to transition the model to an agency outside of NJ Transit, we could remove the line name and stop names as predictors and instead use the distance between each station. The idea being that if stations are relatively close to eachother, delays accumulate as trains cannot speed up to regain time. These changes could also be useful for the NJ Transit deployment as well. 
 
 # Appendix / Citations
 
