@@ -1,5 +1,5 @@
 ---
-title: "NJ Transit Predictive Analytics"
+title: "Predicting Tardy Trains on NJ Transit"
 author: "Jonathon Sun & Johnathan Clementi"
 date: "12/17/2021"
 output:
@@ -10,10 +10,28 @@ output:
       smooth_scroll: true
     code_folding: hide
 ---
+<style type="text/css">
 
-```{r setup}
-knitr::opts_chunk$set(echo = TRUE)
-pacman::p_load(tidyverse, vroom, DataExplorer, lubridate, sf, tidycensus, tigris, hms, riem, slider, scales, caret,RcppEigen, ckanr, FNN, ggcorplot, grid, gridExtra, gtools, httr, kableExtra, modelsummary,tidycensus, spdep, stargazer, tmap, viridis, zipcodeR, DT, dplyr, scales, ggthemes, plotly, gganimate, stringr)
+h1.title {
+  text-align: center;
+}
+h4.author { /* Header 4 - and the author and data headers use this too  */
+  text-align: center;
+}
+h4.date { /* Header 4 - and the author and data headers use this too  */
+  text-align: center;
+}
+</style>
+
+```{r setup, message=FALSE, warning=FALSE, include = FALSE}
+knitr::opts_chunk$set(
+	message = FALSE,
+	warning = FALSE,
+	echo = FALSE,
+	error = FALSE,
+	cache = TRUE
+)
+pacman::p_load(tidyverse, vroom, DataExplorer, lubridate, sf, tidycensus, tigris, hms, riem, slider, scales, caret,RcppEigen, ckanr, FNN, ggcorplot, grid, gridExtra, gtools, httr, kableExtra, modelsummary,tidycensus, spdep, stargazer, tmap, viridis, zipcodeR, DT, dplyr, scales, ggthemes, plotly, gganimate, stringr, rstudioapi)
 
 
 library(ggcorrplot)
@@ -30,13 +48,17 @@ palette_9_colors <- c("#FF2AD4","#E53AD8","#CC4ADC","#996AE5","#7F7BE9",
 palette_3_colors <- c("#FF2AD4","#7F7BE9","#00CCFF")
 palette_2_colors <- c("#FF2AD4", "#00CCFF")
 palette_1_colors <- c("#00CCFF")
+
+currentDir <- str_replace(getSourceEditorContext()$path, "Final_markdown.Rmd", "")
+headingImg <- paste0(currentDir, "njTransit_coverimage.jpg")
 ```
+![Passengers wait to board an arriving NJ Transit Train](`r headingImg`)
 
 # Introduction and Motivation
 
 Although train delays may seem like minor annoyances in the daily life of a commuter, there are real economic costs to train tardiness. The city of New York Office of the Controller found that major delays (5-minute delays) annually cost the city \$170.2 million dollars (Stringer, 2017). While some systems are truer to their timetables, systems like Amtrak are notoriously late (Lazo, 2019). In the case of Amtrak, a primary driver of lateness is congestion as it does not own most of the right of way it operates on. In a 2019 report detailing its on-time-performance (OTP) woes, Amtrak estimated approximately \$171 million in losses during 2018 due to 27% of their trains being late (Amtrak, 2019).
 
-OTP issues are not exclusive to Amtrak in the Northeast. Regional operators such as the NJTransit have a history of delays (McGeehan, 2018). In this study, we build and test a linear regression to predict delay length for trains based on a variety of predictors. The hope is that this model can be utilized by agencies, researchers, and the average commuter.
+OTP issues are not exclusive to Amtrak in the Northeast. Regional operators such as the NJ Transit have a history of delays (McGeehan, 2018). In this study, we build and test a linear regression to predict delay length for trains based on a variety of predictors. The hope is that this model can be utilized by agencies, researchers, and the average commuter.
 
 For agencies and researchers, the visualizations and algorithm can be a tool to identify bottlenecks in the system. Whether that be the stations that are coming from or arriving to or if there is a particular day of the week that is most late. This analysis will lead to the identification of lateness so that it can be addressed. For the average commuter, this analysis can provide a way to determine average lateness and given a set of variables; how late will the train be?
 
@@ -247,7 +269,7 @@ datatable(df_shp %>%
      colnames = ColNamesClean$Name,
      # caption = "Table 1: Table view of the data",
      filter = 'bottom',
-     extensions = 'FixedColumns',
+     # extensions = 'FixedColumns',
      options = list(dom = 't',
                     scrollX = TRUE,
                     fixedColumns = TRUE,
@@ -255,14 +277,16 @@ datatable(df_shp %>%
 
 
 ```
-
-This model uses data from Kaggle on Amtrak and NJTransit, shapefile data from ESRI, and weather data from `riem`. For the data from kaggle we used data specifically from NJtransit. The NJtransit is the public transit system for the state of New Jersey and includes buses, trains, and light rail; however, for this study we are only finding delays for trains. The NJtransit has `r length(unique(df$line))` different train lines and `r length(unique(df$from))` stations. The dataset that we have selected comprises of `r nrow(df)` and `r length(colnames(df))` variables. From this dataset, we engineered a number of other variables such as station lag, the delay at the previous station, and the accumulated delay at each stop sequence. In addition to the train data, we also included data on the weather, at the time of the train departing. Weather data was pulled from the nearest station which was Newark International Airport.
-
 Table 1 includes a sample of 500 rows to view the data. Use the filter boxes at the bottom of the table window to filter, select, and order the data.
+
+This model uses data from Kaggle on Amtrak and NJ Transit, shapefile data from ESRI, and weather data from `riem`. For the data from kaggle we used data specifically from NJ Transit. The NJ Transit is the public transit system for the state of New Jersey and includes buses, trains, and light rail; however, for this study we are only finding delays for trains. The NJ Transit has `r length(unique(df$line))` different train lines and `r length(unique(df$from))` stations. The dataset that we have selected comprises of `r nrow(df)` and `r length(colnames(df))` variables. From this dataset, we engineered a number of other variables such as station lag, the delay at the previous station, and the accumulated delay at each stop sequence. In addition to the train data, we also included data on the weather, at the time of the train departing. Weather data was pulled from the nearest station which was Newark International Airport.
+
+The station lag is the magnitude by which a train is late at the station previous to the current station for a given train on a single route. Said differently, if train 123 travels from stations A -> B -> C, and is late by 2 minutes at station B, then the station lag for train 123 at station C is 2 minutes. This feature introduces the ability to account for delays at the previous station as a predictor for how late train will be to the current station. As seen later in the exploratory analyses, delays accumulate as trains get closer to their destination. The spatiotemporal process of accumulated delay is an important predictor of a train's lateness to a station.
+
 
 # Exploratory Analyses
 
-To conceptualize what variables to consider in the model, we explored the data through plot correlations, categorical data, delays by time, delays by station, geography and delays over time. The purpose of these exploratory analyses is to gain a better understanding for the story of lateness. We answer questions such as 'which lines experience more lateness than others', 'during which times of day is lateness more prevalent in the system', and 'which stops in a line seem to cause more delay compared to other stops?' By first examining these trends, we gain a better understanding of the drivers of lateness in NJTransit's system.
+To conceptualize what variables to consider in the model, we explored the data through plot correlations, categorical data, delays by time, delays by station, geography and delays over time. The purpose of these exploratory analyses is to gain a better understanding for the story of lateness. We answer questions such as 'which lines experience more lateness than others', 'during which times of day is lateness more prevalent in the system', and 'which stops in a line seem to cause more delay compared to other stops?' By first examining these trends, we gain a better understanding of the drivers of lateness in NJ Transit's system.
 
 ## Correlation Identification
 
@@ -482,7 +506,7 @@ ggplotly(ggplot(data = cat %>%
 
 ### Station Delays by Geography
 
-In addition to analysis on Time, this study also includes space. The maps below of the NJ transit lines show the average delow going to and from each station on the NJtransit. As illustrated below, the average train on the Atlantic City Line is around 15 minutes late.
+In addition to analysis on Time, this study also includes space. The maps below of the NJ transit lines show the average delow going to and from each station on the NJ Transit. As illustrated below, the average train on the Atlantic City Line is around 15 minutes late.
 
 ```{r}
 A <- df_shp %>%
@@ -649,7 +673,10 @@ Test <- filter(Sample, (week >= 16))
 gc()
 ```
 
-After exploring the data, we built a linear model that includes **`r colnames(Sample)`**. We first subsetted the data into training and test datasets. The training set are the data on which the model is built. The test data are then used to evaluate the model's effectiveness. Compared to a model that includes all the variables, this model is more advantageous because it avoids the problem of being overfit. When a model was built that included all the variables, the model had an R\^2 value of 1 and 0 Mean Squared Error (MSE). The current model includes an MSE not equal to 0 and a R\^2 value less than 1, which means the model is not overfit, and can predict on new data.
+
+After exploring the data, we built a linear model that includes **`r colnames(Sample)`**. Compared to a model that includes all the variables, this model is more advantageous because it avoids the problem of being overfit. When a model was built that included all the variables, the model had an R\^2 value of 1 and 0 Mean Squared Error (MSE). The current model includes an MSE not equal to 0 and a R\^2 value less than 1, which means the model is not overfit, and can predict on new data.   
+
+Once we identified the suitable predictors for the model, the data were then subsetted into training and test datasets. The training set are the data on which the model is built and consists of `r max(Train$week) - min(Train$week)` weeks of the original dataset. The model is then evaluated to determine its effectiveness using the test set consisting of the `r max(Test$week) - min(Test$week)` weeks that follow the training set.   
 
 ```{r runmodels, message=FALSE, warning=FALSE, cache=FALSE, echo=FALSE, results='asis'}
 #reg.training <- fastLm(delay_minutes ~ ., data = Train)
@@ -699,7 +726,7 @@ reg.cv <-
 reg.cv
 ```
 
-The results of our cross-validation indicate that the model is an effective method for predicting NJTransit train lateness. The RMSE value of `r mean(reg.cv$resample$RMSE)` indicates that on average, the model either over-predicts or under-predicts lateness by about 2 minutes. Additionally, the R\^2 value of `r mean(reg.cv$resample$Rsquared)` indicates that the model may have some over fit. However, these values only give impressions about the model as a whole. To identify stations for which the model is better or worse at predicting, we must visualize the errors geographically.
+The results of our cross-validation indicate that the model is an effective method for predicting NJ Transit train lateness. The RMSE value of `r mean(reg.cv$resample$RMSE)` indicates that on average, the model either over-predicts or under-predicts lateness by about 2 minutes. Additionally, the R\^2 value of `r mean(reg.cv$resample$Rsquared)` indicates that the model may have some over fit. However, these values only give impressions about the model as a whole. To identify stations for which the model is better or worse at predicting, we must visualize the errors geographically.
 
 ### Average Predictions
 
@@ -856,238 +883,16 @@ grid.arrange(C,B, ncol = 2, nrow=1,
 
 # Conclusions
 
-The fact that 
+It is apparent that this is a very accurate model. Overall the model predicts how late any given NJ transit train will be to a station with a `r paste0(round(mean(reg.cv$resample$Rsquared)*100,2),"%")` accuracy. Further, it predicts well for the commuter lines such as The Main Line, The Raritan Valley Line, and the Morristown Line. However, the fact that the model predicts well for all lines except the Atlantic City Line may indicate an issue with overfitting and the inability to generalize to different spatial contexts. With such a robust set of data, it is unlikely that we would see issues with predicting across the temporal axis though.   
+
+Therefore, we recommend that NJ Transit make use of this tool for predicting when and where their trains will be late. In turn, this tool will then give operators the ability to work towards mitigation of the drivers of lateness in their system. This is a possible avenue for further expansion of this tool's capabilities. If we were given access to NJ Transit's mechanical issues data, provided that it exists, we could identify when and where mechanical issues cause lateness.   
+
+It is clear that this is a powerful tool, not only for the transit operators, but also for the average NJ Transit rider. The ability to predict when a train will arrive with a margin of error of `r print(mae)` minutes could be highly attractive to the time-crunched transit rider. 
 
 
-# Appendix
+# Appendix / Citations
 
-```{r eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
-## Data exploration
+Freishtat, Sarah. “Waiting Longer for Follow Your Bus or Train? The CTA Has Been Running Fewer of Them during the Pandemic.,” 2021, 5.
+Lazo, Luz. “Amtrak’s Chronic Delays Are Costing Millions of Dollars, Report Says,” n.d., 2.
+Penney, Veronica. “How Coronavirus Has Changed New York City Transit, in One Chart,” 2021, 7.
 
-DataExplorer::introduce(df)
-DataExplorer::plot_intro(df)
-DataExplorer::plot_density(df)
-DataExplorer::plot_bar(df)
-DataExplorer::plot_histogram(df)
-```
-
-```{r eval=FALSE, include=FALSE}
-numericVars <- df_shp %>%
-                st_drop_geometry() %>%
-                na.omit() %>%
-                select(where(is.numeric)) %>%
-                select(!c("from_id","to_id","DotW","station_lag","stop_sequence","Year","week"))
-
-ggcorrplot(
-  round(cor(numericVars), 1), 
-  p.mat = cor_pmat(numericVars),
-  colors = c("#25CB10", "white", "#FA7800"),
-  type="lower",
-  insig = "blank") +  
-    labs(title = "Correlation across numeric variables")
-
-
-```
-
-```{r eval=FALSE, include=FALSE}
-f <- df_shp %>%
-  st_drop_geometry() %>%
-  group_by(date, LINE_NAME) %>%
-  summarize(mean_delay = mean(delay_minutes)) %>%
-  ggplot(aes(x = LINE_NAME, y = mean_delay)) +
-  geom_boxplot()
-
-ggplotly(f)
-```
-
-```{r eval=FALSE, include=FALSE}
-#Delays by status, did it get cancelled, did it leave, etc.
-df_shp %>%
-  st_drop_geometry() %>%
-  group_by(date,status) %>%
-  summarize(mean_delay = mean(delay_minutes)) %>%
-  ggplot(aes(x = date, y = mean_delay, color = status)) +
-  geom_smooth(se = FALSE) +
-  geom_vline(xintercept = as.numeric(ymd(c("2020-01-20"))), linetype = "dashed") +
-  labs(title = "Average Delay Over Time",
-       subtitle = "By Line",
-       y = "Average Delay",
-       x = "Date",
-       caption = "Figure X") +
-  plotTheme()
-```
-
-```{r eval=FALSE, include=FALSE}
-#This doesn't work not sure why it's here in case we want to make it work at some point
-df_clean %>%
-  group_by(train_id, Year) %>%
-  summarize(mean_delay = mean(delay_minutes),
-            sd_delay = sd(delay_minutes),
-            mean_temperature = mean(Temperature),
-            sd_temperature = sd(Temperature),
-            mean_precipitation = mean(Precipitation),
-            sd_precipitation = sd(Precipitation))
-
-f <- df_clean %>%
-  filter(is.na(Temperature))
-
-NA_weather_dates <- unique(f$interval60)
-
-```
-
-```{r eval=FALSE, include=FALSE}
-Amtrak_stops <- bind_rows(
-                  df %>%
-                    filter(type == "Amtrak") %>%
-                    group_by(from) %>%
-                    summarize(total = n()) %>%
-                    rename(location = from),
-                  df %>%
-                    filter(type == "Amtrak") %>%
-                    group_by(to) %>%
-                    summarize(total = n()) %>%
-                    rename(location = to)) %>%
-                  arrange(location) %>%
-                  group_by(location) %>%
-                  summarize(total = sum(total))
-
-NJTransit_stops <- bind_rows(
-                      df %>%
-                        filter(type == "NJ Transit") %>%
-                        group_by(from) %>%
-                        summarize(total = n()) %>%
-                        rename(location = from),
-                      df %>%
-                        filter(type == "NJ Transit") %>%
-                        group_by(to) %>%
-                        summarize(total = n()) %>%
-                        rename(location = to)) %>%
-                      arrange(location) %>%
-                      group_by(location) %>%
-                      summarize(total = sum(total))
-
-AllStops <- bind_rows(Amtrak_stops, NJTransit_stops) %>%
-              group_by(location) %>%
-              summarise(total = sum(total))
-
-```
-
-```{r eval=FALSE, include=FALSE}
-## Amtrak Data
-
-#Amtrak_routes <- st_read("https://opendata.arcgis.com/datasets/baa5a6c4d4ae4034850e99aaca38cfbb_0.geojson") 
-#Amtrak_stations <- st_read("https://opendata.arcgis.com/datasets/4cf728602fa3428ba0a08d30efbb5f45_0.geojson")
-# In case amtrak links don't work -------------------------------------
-
-Amtrak_routes <- st_read(".//AmtrakRoutes//amtrakroutes.shp") 
-
-Amtrak_stations <- st_read(".//AmtrakStations//amtrakstations.shp")
-
-#st_write(NJTransitLines,"NJTransitLineShapefile/NJTransitlines.shp")
-#st_write(Amtrak_stations,"AmtrakStations/Amtrakstations.shp")
-#st_write(Amtrak_routes,"AmtrakRoutes/Amtrakroutes.shp")
-
-# -----------------------------------------
-sts <- c("NJ","NY","PA")
-
-combined <- rbind_tigris(
-  lapply(sts, function(x) {
-    tracts(x, cb = TRUE)
-  })
-) %>%
-  st_transform(st_crs(Amtrak_stations))
-  
-
-#AmtrakLinesDf <- st_intersection(combined, Amtrak_routes) %>%
-#  group_by(NAME.1) %>%
-#  summarize(total = n())
-
-#AmtrakLinesDf %>%
-#  select()
-
-#ggplot() +
-#  geom_sf(data = combined) +
-#  geom_sf(data = AmtrakLinesDf)
-
-#Amtrak_stations %>%
-#  separate(StationNam, into = c("County", "State"), sep = ",", remove = FALSE) %>%
-#  mutate(State = trimws(State)) %>%
-#  filter(State %in% c("NY","NJ","PA")) %>%
-#  View()
-
-
-
-
-
-```
-
-```{r cleaning_Stations, eval=FALSE, include=FALSE}
-
-NJtransitstations %>%
-  filter(grepl("Anderson", STATION_ID))
-
-NJtransitstations %>%
-  filter(grepl("Atlantic", STATION_ID))
-
-NJtransitstations %>%
-  filter(grepl("Bay", STATION_ID))
-
-NJtransitstations %>%
-  filter(grepl("Broad", STATION_ID))
-
-NJtransitstations %>%
-  filter(grepl("Essex", STATION_ID))
-
-NJtransitstations %>%
-  filter(grepl("Glen Rock", STATION_ID))
-
-NJtransitstations %>%
-  filter(grepl("Glen Rock", STATION_ID))
-
-NJtransitstations %>%
-  filter(grepl("Hoboken", STATION_ID))
-
-NJtransitstations %>%
-  filter(grepl("Middletown", STATION_ID))
-
-NJtransitstations %>%
-  filter(grepl("Montclair", STATION_ID))
-
-NJtransitstations %>%
-  filter(grepl("Arlington", STATION_ID))
-
-NJtransitstations %>%
-  filter(grepl("Mountain", STATION_ID))
-
-NJtransitstations %>%
-  filter(grepl("Pennsauken", STATION_ID))
-
-NJtransitstations %>%
-  filter(grepl("30th", STATION_ID))
-
-NJtransitstations %>%
-  filter(grepl("Princeton", STATION_ID))
-
-NJtransitstations %>%
-  filter(grepl("Rad", STATION_ID))
-
-NJtransitstations %>%
-  filter(grepl("Ramsey", STATION_ID))
-
-NJtransitstations %>%
-  filter(grepl("Secaucus", STATION_ID))
-
-NJtransitstations %>%
-  filter(grepl("Teterboro", STATION_ID))
-
-NJtransitstations %>%
-  filter(grepl("Watsessing", STATION_ID))
-
-NJtransitstations %>%
-  filter(grepl("Wayne", STATION_ID))
-
-NJtransitstations %>%
-  filter(grepl("Wood", STATION_ID))
-
-
-```
