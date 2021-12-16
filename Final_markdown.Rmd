@@ -11,10 +11,8 @@ output:
     code_folding: hide
 ---
 
-
-```{r setup, include=FALSE}
+```{r setup}
 knitr::opts_chunk$set(echo = TRUE)
-
 pacman::p_load(tidyverse, vroom, DataExplorer, lubridate, sf, tidycensus, tigris, hms, riem, slider, scales, caret,RcppEigen, ckanr, FNN, ggcorplot, grid, gridExtra, gtools, httr, kableExtra, modelsummary,tidycensus, spdep, stargazer, tmap, viridis, zipcodeR, DT, dplyr, scales, ggthemes, plotly, gganimate, stringr)
 
 
@@ -35,15 +33,16 @@ palette_1_colors <- c("#00CCFF")
 ```
 
 # Introduction and Motivation
-Project option 4 - Forecast Metro train delays in and around NYC: An amazing new dataset has popped up on Kaggle recently that list origin/destinations delays for Amtrak and NJ Transit trains. Can you predict train delays? Consider the time frame that it would be useful to have such predictions. Predicting 5 minutes out is not going to be as useful as 2-3 hours out. Consider training on a month and predicting for the next week or two. Consider time/space (train line, county etc.) cross validation. Many app use cases here.
 
-Although train delays may seem like minor annoyances in the daily life of a commuter, there are real economic costs to train tardiness. The city of New York Office of the Controller found that major delays (5 minute delays) annually cost the city $170.2 million dollars (Stringer, 2017). Although this study was done on subway delays, the same idea can be applied to regional trains as the NJTransit has a history of delays (McGeehan, 2018). The algorithm that we have developed predicts how late trains will be based on a variety of variables, and can be utilized by agencies, researchers, and the average commuter. 
+Although train delays may seem like minor annoyances in the daily life of a commuter, there are real economic costs to train tardiness. The city of New York Office of the Controller found that major delays (5-minute delays) annually cost the city \$170.2 million dollars (Stringer, 2017). While some systems are truer to their timetables, systems like Amtrak are notoriously late (Lazo, 2019). In the case of Amtrak, a primary driver of lateness is congestion as it does not own most of the right of way it operates on. In a 2019 report detailing its on-time-performance (OTP) woes, Amtrak estimated approximately \$171 million in losses during 2018 due to 27% of their trains being late (Amtrak, 2019).
 
-For agencies and researchers, the visualizations and algorithm can be a tool to identify where trains are late. Whether that be the stations that are coming from or arriving to or if there is a particular day of the week that is most late. This analysis will provide ways to identify lateness so that it can be addressed. For the average commuter, this analysis can provide a way to determine average lateness and given a set of variables; how late will the train be? 
+OTP issues are not exclusive to Amtrak in the Northeast. Regional operators such as the NJTransit have a history of delays (McGeehan, 2018). In this study, we build and test a linear regression to predict delay length for trains based on a variety of predictors. The hope is that this model can be utilized by agencies, researchers, and the average commuter.
+
+For agencies and researchers, the visualizations and algorithm can be a tool to identify bottlenecks in the system. Whether that be the stations that are coming from or arriving to or if there is a particular day of the week that is most late. This analysis will lead to the identification of lateness so that it can be addressed. For the average commuter, this analysis can provide a way to determine average lateness and given a set of variables; how late will the train be?
 
 # Data
 
-```{r trainTimes, message=FALSE, warning=FALSE, include=FALSE}
+```{r trainTimes, message=FALSE, warning=FALSE}
 import <- paste0("Amtrak/",list.files("Amtrak"))
 
 df <- data.frame()
@@ -246,7 +245,7 @@ datatable(df_shp %>%
      class = 'cell-border stripe',
      rownames = FALSE,
      colnames = ColNamesClean$Name,
-     caption = "Table 1: Table view of the data",
+     # caption = "Table 1: Table view of the data",
      filter = 'bottom',
      extensions = 'FixedColumns',
      options = list(dom = 't',
@@ -259,23 +258,25 @@ datatable(df_shp %>%
 
 This model uses data from Kaggle on Amtrak and NJTransit, shapefile data from ESRI, and weather data from `riem`. For the data from kaggle we used data specifically from NJtransit. The NJtransit is the public transit system for the state of New Jersey and includes buses, trains, and light rail; however, for this study we are only finding delays for trains. The NJtransit has `r length(unique(df$line))` different train lines and `r length(unique(df$from))` stations. The dataset that we have selected comprises of `r nrow(df)` and `r length(colnames(df))` variables. From this dataset, we engineered a number of other variables such as station lag, the delay at the previous station, and the accumulated delay at each stop sequence. In addition to the train data, we also included data on the weather, at the time of the train departing. Weather data was pulled from the nearest station which was Newark International Airport.
 
-
-Table 1 includes a sample of 500 rows to view the data.
+Table 1 includes a sample of 500 rows to view the data. Use the filter boxes at the bottom of the table window to filter, select, and order the data.
 
 # Exploratory Analyses
-To conceptualize what variables to consider in the model, we explored the data through plot correlations, categorical data, delays by time, delays by station, geography and delays over time. 
+
+To conceptualize what variables to consider in the model, we explored the data through plot correlations, categorical data, delays by time, delays by station, geography and delays over time. The purpose of these exploratory analyses is to gain a better understanding for the story of lateness. We answer questions such as 'which lines experience more lateness than others', 'during which times of day is lateness more prevalent in the system', and 'which stops in a line seem to cause more delay compared to other stops?' By first examining these trends, we gain a better understanding of the drivers of lateness in NJTransit's system.
 
 ## Correlation Identification
-To explore the correlation in data, we used the `DataExplorer` package's `plot_correlation()` function. This package also plots correlation of categorical data by breaking categorical data into dummy variables. The plot below shows the relationship between all the variables. 
+
+To explore the correlation in data, we used the `DataExplorer` package's `plot_correlation()` function. This package also plots correlation of categorical data by breaking categorical data into dummy variables. The plot below shows the relationship between all the variables.
 
 ```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height= 10}
 DataExplorer::plot_correlation(df %>% select(!line))
 ```
 
+## Categorical Predictors
 
-## Categorical
-To better understand the relationships in categorical data, in the plot below the average delay was plotted for AM/PM, line, scheduled time of day, and status of the train. The plot does indicate that There is not a large difference between trains based on AM/PM; however, there are differences in delay based on the line. 
-```{r echo=FALSE, message=FALSE, warning=FALSE}
+To better understand the relationships in categorical data, in the plot below the average delay was plotted for AM/PM, line, scheduled time of day, and status of the train. The plot does indicate that There is not a large difference between trains based on AM/PM; however, there are differences in delay based on the line.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=10}
 Categorical <- df_shp %>%
                 st_drop_geometry() %>%
                 na.omit() %>%
@@ -313,10 +314,11 @@ ggplot(data = cat %>%
 
 ## Delays By Time: Hour of Day
 
-Next we wanted to understand the relationship of lateness over the course of 24 hours. First we categorized the scheduled trains by AM Rush, Mid-Day, PM Rush, and Overnight, and then counted the frequencies of how many trains were late during each of these periods. Next the overall line delays in the dataset were counted and plotted against the hour in the day. This shows at what time of day how many trains were late. 
+Next we wanted to understand the relationship of lateness over the course of 24 hours. First we categorized the scheduled trains by AM Rush, Mid-Day, PM Rush, and Overnight, and then counted the frequencies of trains that were more than 5 minutes late during each of these periods. Next the overall line delays in the dataset were counted and plotted against the hour in the day. This shows at what time of day how many trains were late.
 
-```{r message=FALSE, warning=FALSE, fig.width=10}
-A <- df %>%
+```{r echo=TRUE, fig.width=10, message=FALSE, warning=FALSE}
+# A <-
+df %>%
   mutate(delay_grtr5min = case_when(delay_minutes >= 5 ~ 1,
                                     delay_minutes < 5 ~ 0)) %>%
   filter(delay_grtr5min == 1) %>%
@@ -331,25 +333,28 @@ A <- df %>%
        x = "Number of Trains Late",
        caption = "Figure X")
 
-B <- df %>%
+# B <-
+df %>%
   mutate(delay_grtr5min = case_when(delay_minutes >= 5 ~ 1,
                                     delay_minutes < 5 ~ 0)) %>%
   filter(delay_grtr5min == 1) %>%
   group_by(interval60) %>%
   ggplot() +
     geom_freqpoly(aes(hour(scheduled_datetime), color = LINE_NAME), size = 1, binwidth = 1) +
+  facet_wrap(~LINE_NAME) +
   plotTheme() +
   labs(title = "Count of Lateness by Line by Time",
        x = "Scheduled Hour of Day",
        caption = "Figure X")
 
-grid.arrange(A,B, ncol = 2, nrow=1, widths = c(1.5,2),
-             top = textGrob("Plots showing Usage Over Time", gp=gpar(fontsize=20,font=3)))
+# grid.arrange(A,B, ncol = 2, nrow=1, widths = c(1.5,2),
+#              top = textGrob("Plots showing Usage Over Time", gp=gpar(fontsize=20,font=3)))
+
 ```
 
 ## Delays over Time: Days of the Year
 
-Next we analyzed day within the time of the year, rather than hours within a day. Figure X shows the amount of delay over the course of a year by day. The dotted line in the figure indicates the first day covid-19 was detected in the United States. Based on the data, it is difficult to determine the role that covid-19 had on average delay times. To better understand the role of covid-19, data from year prior to covid will need to be used in a t-test. 
+Next we analyzed day within the time of the year, rather than hours within a day. Figure X shows the amount of delay over the course of a year by day. The dotted line in the figure indicates the first day covid-19 was detected in the United States. Based on the data, it is difficult to determine the role that covid-19 had on average delay times. To better understand the role of covid-19, data from year prior to covid will need to be used in a t-test.
 
 ### By Line Name
 
@@ -402,11 +407,9 @@ ggplotly(df_shp %>%
 #ggsave("smooth_line_delay.jpg", width = 16, height = 9, unit = "in", dpi = 300)
 ```
 
-
 ### By Stop Sequence
 
-Finally, figure X, includes an estimated line for delays by stop sequence. Stop sequence indicates where on the line this train has stopped; for example, the North East Corridor may have multiple stops and those stops are organized by values 1, 2, 3, and so forth. 
-
+Finally, figure X, includes an estimated line for delays by stop sequence. Stop sequence indicates where on the line this train has stopped; for example, the North East Corridor may have multiple stops and those stops are organized by values 1, 2, 3, and so forth.This figure is particularly interesting because it shows that delays accumulate in the system. Most trains at the beginning of their route leave on time, whereas as trains experience delays further into their route.
 
 ```{r message=FALSE, warning=FALSE}
 factor_order <- c(1:26)
@@ -454,12 +457,11 @@ ggplotly(df_shp %>%
 #ggsave("smooth_Stop_delay.jpg", width = 16, height = 9, unit = "in", dpi = 300)
 ```
 
-
 ## Station delays
 
-Rather then analyze delays by time of day, we also wanted to understand the role that stations had in delay times for trains. Below we included a plot that shows the average delay to and from a station. 
+Rather than just analyze delays by time of day, we also wanted to understand the role that stations had in delay times for trains. Below we included a plot that shows the average delay to and from a station. This figure is particularly useful for agencies as it allows for the identification of specific stations that are causing and being a recipient of delays in the system.
 
-```{r fig.height=12, message=FALSE, warning=FALSE}
+```{r fig.height=12, fig.width=10, message=FALSE, warning=FALSE}
 ggplotly(ggplot(data = cat %>%
          filter(Variable %in% c("from","to")) %>%
          arrange(Value) %>%
@@ -480,7 +482,7 @@ ggplotly(ggplot(data = cat %>%
 
 ### Station Delays by Geography
 
-In addition to analysis on Time, this study also includes space. The maps below of the NJ transit lines show the average delow going to and from each station on the NJtransit
+In addition to analysis on Time, this study also includes space. The maps below of the NJ transit lines show the average delow going to and from each station on the NJtransit. As illustrated below, the average train on the Atlantic City Line is around 15 minutes late.
 
 ```{r}
 A <- df_shp %>%
@@ -601,7 +603,6 @@ grid.arrange(C,B, ncol = 2, nrow=1,
              top = textGrob("Average Delay To and From Station", gp=gpar(fontsize=20,font=3)))
 ```
 
-
 # Model building
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}
@@ -648,10 +649,9 @@ Test <- filter(Sample, (week >= 16))
 gc()
 ```
 
+After exploring the data, we built a linear model that includes **`r colnames(Sample)`**. We first subsetted the data into training and test datasets. The training set are the data on which the model is built. The test data are then used to evaluate the model's effectiveness. Compared to a model that includes all the variables, this model is more advantageous because it avoids the problem of being overfit. When a model was built that included all the variables, the model had an R\^2 value of 1 and 0 Mean Squared Error (MSE). The current model includes an MSE not equal to 0 and a R\^2 value less than 1, which means the model is not overfit, and can predict on new data.
 
-After exploring the data, we built a linear model that includes `r colnames(Sample)`. This model in comparison to a model that includes all the variables is more advantageous because it avoids the problem of being overfit. When a model was built that included all the variables, the model had an R^2 value of 1 and 0 Mean Squared Error (MSE). The current model includes an MSE not equal to 0 and a R^2 value less than 1, which means the model is not overfit, and can predict on new data. 
-
-```{r runmodels, message=FALSE, warning=FALSE, results='asis'}
+```{r runmodels, message=FALSE, warning=FALSE, cache=FALSE, echo=FALSE, results='asis'}
 #reg.training <- fastLm(delay_minutes ~ ., data = Train)
 
 reg.training <- lm(delay_minutes ~ ., data = Train)
@@ -675,14 +675,19 @@ mape <- mean(Test$Delay.APE, na.rm=TRUE)
 
 # Table of regression outputs
 #modelsummary(reg.training, output = "kableExtra", stars = TRUE, gof_omit = 'IC|Log|AIC|BIC')
-stargazer(reg.training, type = 'html')
+stargazer(reg.training, type="html", header = TRUE, align=TRUE,
+          single.row = TRUE, style = "apsr",
+          notes.append = FALSE,
+          notes = c("<sup>&sstarf;</sup>p<0.1; <sup>&sstarf;&sstarf;</sup>p<0.05; <sup>&sstarf;&sstarf;&sstarf;</sup>p<0.01"))
+
 ```
 
-Based on the linear regression we found the Mean Average Error (MAE) to be `r print(mae)` and the Mean Average Percent Error (MAPE) to be `r print(mape)`.
+Based on the linear regression we found the Mean Absolute Error (MAE) to be `r print(mae)` and the Mean Absolute Percent Error (MAPE) to be `r print(mape)`. These 'goodness of fit' metrics are used to measure how closely the model can predict the delays of trains in the test dataset. The MAE can be interpreted as the average number of minutes that the model over or under predicts compared to the actual delay at each stop. If our minimum delay time is 0, and maximum delay time is `r print(max(Sample$delay_minutes))`, then an MAE of `r print(mae)` is actually pretty good. Further, the MAPE is interpreted as the percentage of trains that the model predicted incorrectly.   
 
 # Cross Validation
- To ensure that our model works well, we cross-validated the data which compares the estimated delay to the actual delay. 
- 
+
+To ensure build a robust model, we utilized the K-fold cross-validation technique to repeat the modeling process detailed above. In essence, cross-validation process involves partitioning the dataset into *K* number groups (otherwise known as folds). For each fold, the modeling process described above is repeated - split into training/test sets, build model on training, calculate goodness of fit metrics for test set. The repetition of the modeling process allows us to simulate how our model would perform on unseen data in a real world setting. 
+
 ```{r Cross_Validation, message=FALSE, warning=FALSE}
 fitControl <- trainControl(method = "cv", number = 5)
 set.seed(825)
@@ -694,10 +699,11 @@ reg.cv <-
 reg.cv
 ```
 
+The results of our cross-validation indicate that the model is an effective method for predicting NJTransit train lateness. The RMSE value of `r mean(reg.cv$resample$RMSE)` indicates that on average, the model either over-predicts or under-predicts lateness by about 2 minutes. Additionally, the R\^2 value of `r mean(reg.cv$resample$Rsquared)` indicates that the model may have some over fit. However, these values only give impressions about the model as a whole. To identify stations for which the model is better or worse at predicting, we must visualize the errors geographically.
 
-# Average Predictions
+### Average Predictions
 
-## Average Predicted Delay by Train Route
+#### Average Predicted Delay by Train Route
 
 First we wanted to visualize the average predicted delay times by geography. Figure X includes the predicted delay by line. Similar to Figure X, the predicted delays are very similarly spread out geographically.
 
@@ -722,7 +728,7 @@ Test %>%
 ggsave("Modeled_Delay_Line.jpg", width = 9*.5, height = 16*.5, unit = "in", dpi = 300)
 ```
 
-## Predicted Delay To and From Station 
+#### Predicted Delay To and From Station
 
 Additionally, we've included the predicted delay TO and From each station by geographic location.
 
@@ -773,12 +779,11 @@ grid.arrange(C,B, ncol = 2, nrow=1,
              top = textGrob("Average Predicted Delay To and From Station", gp=gpar(fontsize=20,font=3)))
 ```
 
-# Average Errors in Predictions
+### Average Errors in Predictions
 
-Although the model accounts for must error, we wanted to check how the model accounts for 
+Although the model accounts for most error, we wanted to check how the well the model accounts for differences in geography. It is clear that while the model is good a predicting values close to the average delay, it loses predictive power for the Atlantic City Line with is consistently more late than the other NJ Transit lines.   
 
-## Average Errors in Predicted Delay by Train Route
-
+#### Average Errors in Predicted Delay by Train Route
 
 ```{r}
 
@@ -800,7 +805,8 @@ Test %>%
 ggsave("Modeled_Delay_Line.jpg", width = 9*.5, height = 16*.5, unit = "in", dpi = 300)
 ```
 
-## Average Errors in Predicted Delay To and From Station 
+#### Average Errors in Predicted Delay To and From Station
+
 ```{r}
 B <- Test %>%
   group_by(from) %>%
@@ -848,10 +854,16 @@ grid.arrange(C,B, ncol = 2, nrow=1,
              top = textGrob("Average of predicted Delay To and From Station", gp=gpar(fontsize=20,font=3)))
 ```
 
+# Conclusions
+
+The fact that 
+
+
 # Appendix
 
-## Data exploration 
 ```{r eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+## Data exploration
+
 DataExplorer::introduce(df)
 DataExplorer::plot_intro(df)
 DataExplorer::plot_density(df)
@@ -877,8 +889,7 @@ ggcorrplot(
 
 ```
 
-
-```{r}
+```{r eval=FALSE, include=FALSE}
 f <- df_shp %>%
   st_drop_geometry() %>%
   group_by(date, LINE_NAME) %>%
@@ -889,8 +900,7 @@ f <- df_shp %>%
 ggplotly(f)
 ```
 
-
-```{r}
+```{r eval=FALSE, include=FALSE}
 #Delays by status, did it get cancelled, did it leave, etc.
 df_shp %>%
   st_drop_geometry() %>%
@@ -906,7 +916,6 @@ df_shp %>%
        caption = "Figure X") +
   plotTheme()
 ```
-
 
 ```{r eval=FALSE, include=FALSE}
 #This doesn't work not sure why it's here in case we want to make it work at some point
@@ -963,9 +972,9 @@ AllStops <- bind_rows(Amtrak_stops, NJTransit_stops) %>%
 
 ```
 
+```{r eval=FALSE, include=FALSE}
 ## Amtrak Data
 
-```{r eval=FALSE, include=FALSE}
 #Amtrak_routes <- st_read("https://opendata.arcgis.com/datasets/baa5a6c4d4ae4034850e99aaca38cfbb_0.geojson") 
 #Amtrak_stations <- st_read("https://opendata.arcgis.com/datasets/4cf728602fa3428ba0a08d30efbb5f45_0.geojson")
 # In case amtrak links don't work -------------------------------------
@@ -1011,7 +1020,6 @@ combined <- rbind_tigris(
 
 
 ```
-
 
 ```{r cleaning_Stations, eval=FALSE, include=FALSE}
 
