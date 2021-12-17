@@ -1,9 +1,6 @@
 ## [J^2 Ridr: Sounds like Tinder, but nothing like Tinder at all](Final_markdown.html)
-<br>
 
 **MUSA507: Public Policy Analysis**
-
-<br>
 
 **Authors:** Johnathan Clementi & Jonathon Sun
 
