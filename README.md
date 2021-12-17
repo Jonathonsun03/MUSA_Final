@@ -43,7 +43,7 @@ Regarding improvements to the model, in order to transition the model to an agen
 
 ### Slides from Presentation
 
-[!alt text](J_Squared_Delays.gif)
+![alt text](J_Squared_Delays.gif)
 
 ### Notes
 Because of the constraint on time and lack of computing resources, our final project was unable to include all the data in the dataset and uses the first half of 2020 to predcit the second half of 2020
