@@ -2,7 +2,8 @@
 **MUSA507: Public Policy Analysis**
 <br>
 **Authors:** Johnathan Clementi & Jonathon Sun
-
+<br>
+[Presentation Link](https://www.youtube.com/watch?v=fKvH-xgyHvM)
 ----
 
 ### Introduction
@@ -15,7 +16,7 @@ OTP issues are not exclusive to Amtrak in the Northeast. Regional operators such
 
 For agencies and researchers, the visualizations and algorithm can serve to identify bottlenecks in the system. Whether that be the stations that are coming from or arriving to or if there is a particular day of the week that is most late. This analysis will lead to the identification of lateness so that it can be addressed. For the average commuter, this analysis can provide a way to determine average lateness and given a set of variables; how late will the train be?
 
-[Presentation Link](https://www.youtube.com/watch?v=fKvH-xgyHvM)
+
 
 ### Visualization
 ![alt text](LINE_NAME.gif)
