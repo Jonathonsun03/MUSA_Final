@@ -1,5 +1,7 @@
 ## [J^2 Ridr: Sounds like Tinder, but nothing like Tinder at all](Final_markdown.html)
 
+---
+
 **MUSA507: Public Policy Analysis**
 
 **Authors:** Johnathan Clementi & Jonathon Sun
@@ -23,7 +25,7 @@ For agencies and researchers, the visualizations and algorithm can serve to iden
 ### Visualization
 ![alt text](LINE_NAME.gif)
 
-----
+---
 
 ### Notes
 Because of the constraint on time and lack of computing resources, our final project was unable to include all the data in the dataset and uses the first half of 2020 to predcit the second half of 2020
