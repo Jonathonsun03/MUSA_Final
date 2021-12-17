@@ -1,4 +1,4 @@
-## [J^2 Ridr: Sounds like Tinder, but nothing like Tinder](https://github.com/Jonathonsun03/MUSA_Final/blob/main/Final_markdown.html)
+## [J^2 Ridr: Sounds like Tinder, but nothing like Tinder](https://htmlpreview.github.io/?https://github.com/Jonathonsun03/MUSA_Final/blob/main/Final_markdown.html)
 
 ---
 
