@@ -1,4 +1,4 @@
-## [J^2 Ridr: Sounds like Tinder, but nothing like Tinder](https://jonathonsun03.github.io/portfolio/Projects/MUSA508_Final.html)
+## [J^2 Ridr: Sounds like Tinder, but nothing like Tinder](https://jonathonsun03.github.io/portfolio/Projects/Final_markdown.html)
 
 ---
 
