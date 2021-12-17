@@ -1,4 +1,4 @@
-## [J^2 Ridr: Sounds like Tinder, but nothing like Tinder at all](Final_markdown.html)
+## [J^2 Ridr: Sounds like Tinder, but nothing like Tinder](Final_markdown.html)
 
 ---
 
@@ -20,10 +20,24 @@ OTP issues are not exclusive to Amtrak in the Northeast. Regional operators such
 
 For agencies and researchers, the visualizations and algorithm can serve to identify bottlenecks in the system. Whether that be the stations that are coming from or arriving to or if there is a particular day of the week that is most late. This analysis will lead to the identification of lateness so that it can be addressed. For the average commuter, this analysis can provide a way to determine average lateness and given a set of variables; how late will the train be?
 
-
-
-### Visualization
 ![alt text](LINE_NAME.gif)
+
+
+### Conclusion
+This tool will give operators the ability to work towards mitigation of the drivers of lateness in their system. This is a possible avenue for further expansion of this tool's capabilities. If we were given access to NJ Transit's mechanical issues data, provided that it exists, we could identify when and where mechanical issues cause lateness.   
+
+Regarding improvements to the model, in order to transition the model to an agency outside of NJ Transit, we could remove the line name and stop names predictors and instead use the distance between each station. The idea being that if stations are relatively close to each other, delays accumulate as trains cannot speed up to regain time. These changes could also be useful for the NJ Transit deployment as well. 
+
+
+### Data
+
+[Kaggle Data on NJTransit & Amtrak](https://www.kaggle.com/pranavbadami/nj-transit-amtrak-nec-performance?select=2018_11.csv)
+
+[NJtransit Lines](https://njogis-newjersey.opendata.arcgis.com/datasets/NJTRANSIT::rail-lines-of-nj-transit/explore?location=40.432892%2C-74.532212%2C8.95) 
+
+[NJtransit Stations](https://njogis-newjersey.opendata.arcgis.com/datasets/NJTRANSIT::rail-stations-of-nj-transit/explore)
+
+[Weather Data](https://cran.r-project.org/web/packages/riem/vignettes/riem_package.html)
 
 ---
 
