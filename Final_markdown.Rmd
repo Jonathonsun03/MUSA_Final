@@ -897,7 +897,8 @@ Regarding improvements to the model, in order to transition the model to an agen
 
 # Appendix / Citations
 
-Freishtat, Sarah. “Waiting Longer for Follow Your Bus or Train? The CTA Has Been Running Fewer of Them during the Pandemic.,” 2021, 5.
-Lazo, Luz. “Amtrak’s Chronic Delays Are Costing Millions of Dollars, Report Says,” n.d., 2.
-Penney, Veronica. “How Coronavirus Has Changed New York City Transit, in One Chart,” 2021, 7.
+Freishtat, S. (2021). Waiting longer for Follow your bus or train? The CTA has been running fewer of them during the pandemic. 5.
+Lazo, L. (n.d.). Amtrak’s chronic delays are costing millions of dollars, report says. 2.
+Penney, V. (2021). How Coronavirus Has Changed New York City Transit, in One Chart. 7.
+
 
