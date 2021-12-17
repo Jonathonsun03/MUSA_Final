@@ -20,6 +20,8 @@ OTP issues are not exclusive to Amtrak in the Northeast. Regional operators such
 
 For agencies and researchers, the visualizations and algorithm can serve to identify bottlenecks in the system. Whether that be the stations that are coming from or arriving to or if there is a particular day of the week that is most late. This analysis will lead to the identification of lateness so that it can be addressed. For the average commuter, this analysis can provide a way to determine average lateness and given a set of variables; how late will the train be?
 
+![alt text](LINE_NAME.gif)
+
 ### Data
 
 [Kaggle Data on NJTransit & Amtrak](https://www.kaggle.com/pranavbadami/nj-transit-amtrak-nec-performance?select=2018_11.csv)
@@ -29,10 +31,6 @@ For agencies and researchers, the visualizations and algorithm can serve to iden
 [NJtransit Stations](https://njogis-newjersey.opendata.arcgis.com/datasets/NJTRANSIT::rail-stations-of-nj-transit/explore)
 
 [Weather Data](https://cran.r-project.org/web/packages/riem/vignettes/riem_package.html)
-
-
-
-![alt text](LINE_NAME.gif)
 
 ---
 
