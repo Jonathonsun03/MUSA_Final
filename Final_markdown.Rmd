@@ -34,7 +34,7 @@ knitr::opts_chunk$set(
 pacman::p_load(tidyverse, vroom, DataExplorer, lubridate, sf, tidycensus, tigris, hms, riem, slider, scales, caret,RcppEigen, ckanr, FNN, ggcorplot, grid, gridExtra, gtools, httr, kableExtra, modelsummary,tidycensus, spdep, stargazer, tmap, viridis, zipcodeR, DT, dplyr, scales, ggthemes, plotly, gganimate, stringr, rstudioapi)
 
 
-library(ggcorrplot)
+#library(ggcorrplot)
 
 #RcppEigen https://rdrr.io/cran/RcppEigen/ runs fastLm()
 
@@ -56,13 +56,13 @@ headingImg <- paste0(currentDir, "njTransit_coverimage.jpg")
 
 # Introduction and Motivation
 
-
+What if we could tell you that your train was going to be 6 minutes late for your Tuesday morning commute, ten days before it was time to leave rather than ten minutes? Would that knowledge be valuable to you? 
 
 Although train delays may seem like minor annoyances in the daily life of a commuter, there are real economic costs to train tardiness. The city of New York Office of the Controller found that major delays (5-minute delays) annually cost the city \$170.2 million dollars (Stringer, 2017). While some systems are truer to their timetables, systems like Amtrak are notoriously late (Lazo, 2019). In the case of Amtrak, a primary driver of lateness is congestion as it does not own most of the right of way it operates on. In a 2019 report detailing its on-time-performance (OTP) woes, Amtrak estimated approximately \$171 million in losses during 2018 due to 27% of their trains being late (Amtrak, 2019).
 
-OTP issues are not exclusive to Amtrak in the Northeast. Regional operators such as the NJ Transit have a history of delays (McGeehan, 2018). In this study, we build and test a linear regression to predict delay length for trains based on a variety of predictors. The hope is that this model can be utilized by agencies, researchers, and the average commuter.
+OTP issues are not exclusive to Amtrak in the Northeast. Regional operators such as the NJ Transit have a history of delays (McGeehan, 2018). For the 90,000 daily riders of NJ transit, these delays mean lost time, revenue, and sanity. In this study, we build and test a linear regression to predict delay length for trains based on a variety of predictors. The hope is that this model can be utilized by agencies, researchers, and the average commuter.
 
-For agencies and researchers, the visualizations and algorithm can be a tool to identify bottlenecks in the system. Whether that be the stations that are coming from or arriving to or if there is a particular day of the week that is most late. This analysis will lead to the identification of lateness so that it can be addressed. For the average commuter, this analysis can provide a way to determine average lateness and given a set of variables; how late will the train be?
+For agencies and researchers, the visualizations and algorithm can serve to identify bottlenecks in the system. Whether that be the stations that are coming from or arriving to or if there is a particular day of the week that is most late. This analysis will lead to the identification of lateness so that it can be addressed. For the average commuter, this analysis can provide a way to determine average lateness and given a set of variables; how late will the train be?
 
 # Data
 
@@ -148,7 +148,7 @@ df <- df %>%
 
 
 Analysis_Dates <- seq(min(as.Date(df$date)), max(as.Date(df$date)), by="days")
-Analysis_Dates <- as.tibble(Analysis_Dates) %>%
+Analysis_Dates <- as_tibble(Analysis_Dates) %>%
                   mutate(day = row_number()) %>%
                   rename(date = value)
 
@@ -257,7 +257,7 @@ remove <- c("ID","from_id","to_id","train_id","type","interval60","line","date",
             "actual_datetime","Actual_time","accumulated_delay", "quintile_delay", "AM_PM", "status")
 
 
-ColNamesClean <- as.tibble(colnames(df %>%
+ColNamesClean <- as_tibble(colnames(df %>%
                                       select(!remove))) %>%
                     rename(Name = value) %>%
                     mutate(Name = str_to_title(Name),
@@ -315,7 +315,7 @@ cat <- Categorical %>%
         mutate(Variable = colnames(Categorical[2])) %>%
         dplyr::rename("Value" = 1)
 
-for(i in 2:(nrow(as.tibble(colnames(Categorical)))-1)) {
+for(i in 2:(nrow(as_tibble(colnames(Categorical)))-1)) {
 t <- Categorical %>%
         select(colnames(Categorical)[i], delay_minutes) %>%
         mutate(Variable = colnames(Categorical[i])) %>%
@@ -691,7 +691,7 @@ reg.training <- lm(delay_minutes ~ ., data = Train)
 
 f <- predict(reg.training, Test)
 
-Test <- bind_cols(Test, as.tibble(f)) %>%
+Test <- bind_cols(Test, as_tibble(f)) %>%
           rename(Delay.Predict = value) %>%
           mutate(Delay.Error = Delay.Predict - delay_minutes,
                Delay.AbsError = abs(Delay.Predict - delay_minutes),
@@ -893,7 +893,7 @@ Therefore, we recommend that NJ Transit make use of this tool for predicting whe
 
 It is clear that this is a powerful tool, not only for the transit operators, but also for the average NJ Transit rider. The ability to predict when a train will arrive with a margin of error of `r print(mae)` minutes could be highly attractive to the time-crunched transit rider. 
 
-Regarding improvements to the model, in order to transition the model to an agency outside of NJ Transit, we could remove the line name and stop names as predictors and instead use the distance between each station. The idea being that if stations are relatively close to eachother, delays accumulate as trains cannot speed up to regain time. These changes could also be useful for the NJ Transit deployment as well. 
+Regarding improvements to the model, in order to transition the model to an agency outside of NJ Transit, we could remove the line name and stop names predictors and instead use the distance between each station. The idea being that if stations are relatively close to each other, delays accumulate as trains cannot speed up to regain time. These changes could also be useful for the NJ Transit deployment as well. 
 
 # Appendix / Citations
 
