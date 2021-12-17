@@ -22,6 +22,13 @@ For agencies and researchers, the visualizations and algorithm can serve to iden
 
 ![alt text](LINE_NAME.gif)
 
+
+### Conclusion
+This tool will give operators the ability to work towards mitigation of the drivers of lateness in their system. This is a possible avenue for further expansion of this tool's capabilities. If we were given access to NJ Transit's mechanical issues data, provided that it exists, we could identify when and where mechanical issues cause lateness.   
+
+Regarding improvements to the model, in order to transition the model to an agency outside of NJ Transit, we could remove the line name and stop names predictors and instead use the distance between each station. The idea being that if stations are relatively close to each other, delays accumulate as trains cannot speed up to regain time. These changes could also be useful for the NJ Transit deployment as well. 
+
+
 ### Data
 
 [Kaggle Data on NJTransit & Amtrak](https://www.kaggle.com/pranavbadami/nj-transit-amtrak-nec-performance?select=2018_11.csv)
